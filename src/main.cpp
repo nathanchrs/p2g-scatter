@@ -279,7 +279,7 @@ Sample::Sample()
     m_frame = -1;
     m_key = false;
     m_renderscale = 0.0;
-    m_infile = "teapot.scn";
+    m_infile = "small.scn";
     m_io_method = C_IO;
 }
 
@@ -592,7 +592,7 @@ bool Sample::init()
 
     m_sample = 0;
     m_save_png = true;
-    m_render_optix = true;
+    m_render_optix = false;
     m_smooth = 0;
     m_smoothp.Set(0, 0, 0);
 

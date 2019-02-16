@@ -11,6 +11,6 @@ Prerequisites:
 
 1. `mkdir build`
 2. `cd build`
-3. `ccmake ..`
+3. `ccmake ../src`
 4. Change settings as necessary, then generate makefile
 5. `make`

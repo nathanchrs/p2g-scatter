@@ -23,8 +23,7 @@ VolumeGVDB gvdb;
 OptixScene optx;
 #endif
 
-struct PolyModel
-{
+struct PolyModel {
     char fpath[1024];
     char fname[1024];
     int mat;
@@ -32,8 +31,7 @@ struct PolyModel
     Vector3DF offs;
 };
 
-class Sample : public NVPWindow
-{
+class Sample : public NVPWindow {
   public:
     Sample();
     virtual bool init();
@@ -41,7 +39,8 @@ class Sample : public NVPWindow
     virtual void reshape(int w, int h);
     virtual void motion(int x, int y, int dx, int dy);
     virtual void keyboardchar(unsigned char key, int mods, int x, int y);
-    virtual void mouse(NVPWindow::MouseButton button, NVPWindow::ButtonAction state, int mods, int x, int y);
+    virtual void mouse(NVPWindow::MouseButton button, NVPWindow::ButtonAction state, int mods,
+                       int x, int y);
     virtual void on_arg(std::string arg, std::string val);
 
     void parse_scene(std::string fname);
@@ -49,7 +48,8 @@ class Sample : public NVPWindow
     void add_material(bool bDeep);
     void add_model();
     void load_points(std::string pntpath, std::string pntfile, int frame);
-    void load_polys(std::string polypath, std::string polyfile, int frame, float pscale, Vector3DF poffs, int pmat);
+    void load_polys(std::string polypath, std::string polyfile, int frame, float pscale,
+                    Vector3DF poffs, int pmat);
     void clear_gvdb();
     void render_update();
     void render_frame();
@@ -112,23 +112,21 @@ class Sample : public NVPWindow
 
 Sample sample_obj;
 
-void handle_gui(int gui, float val)
-{
-    switch (gui)
-    {
-    case 3:
-    {                                            // Shading gui changed
-        float alpha = (val == 4) ? 0.03f : 0.8f; // when in volume mode (#4), make volume very transparent
-        gvdb.getScene()->LinearTransferFunc(0.00f, 0.50f, Vector4DF(0, 0, 1, 0), Vector4DF(0.0f, 1, 0, 0.1f));
-        gvdb.getScene()->LinearTransferFunc(0.50f, 1.0f, Vector4DF(0.0f, 1, 0, 0.1f), Vector4DF(1.0f, .0f, 0, 0.1f));
-        gvdb.CommitTransferFunc();
-    }
-    break;
+void handle_gui(int gui, float val) {
+    switch (gui) {
+        case 3: {                                    // Shading gui changed
+            float alpha = (val == 4) ? 0.03f : 0.8f; // when in volume mode (#4),
+                                                     // make volume very transparent
+            gvdb.getScene()->LinearTransferFunc(0.00f, 0.50f, Vector4DF(0, 0, 1, 0),
+                                                Vector4DF(0.0f, 1, 0, 0.1f));
+            gvdb.getScene()->LinearTransferFunc(0.50f, 1.0f, Vector4DF(0.0f, 1, 0, 0.1f),
+                                                Vector4DF(1.0f, .0f, 0, 0.1f));
+            gvdb.CommitTransferFunc();
+        } break;
     }
 }
 
-void Sample::start_guis(int w, int h)
-{
+void Sample::start_guis(int w, int h) {
     clearGuis();
     setview2D(w, h);
     guiSetCallback(handle_gui);
@@ -136,13 +134,11 @@ void Sample::start_guis(int w, int h)
     addGui(150, h - 30, 130, 20, "Topology", GUI_CHECK, GUI_BOOL, &m_show_topo, 0, 1.0f);
 }
 
-void Sample::add_material(bool bDeep)
-{
+void Sample::add_material(bool bDeep) {
     MaterialParams p;
     mat_list.push_back(p);
 }
-void Sample::add_model()
-{
+void Sample::add_model() {
     PolyModel p;
     strcpy(p.fpath, "");
     strcpy(p.fname, "");
@@ -151,62 +147,54 @@ void Sample::add_model()
     model_list.push_back(p);
 }
 
-void Sample::ClearOptix()
-{
-    optx.ClearGraph();
-}
+void Sample::ClearOptix() { optx.ClearGraph(); }
 
-void Sample::RebuildOptixGraph(int shading)
-{
+void Sample::RebuildOptixGraph(int shading) {
     char filepath[1024];
 
     optx.ClearGraph();
 
-    for (int n = 0; n < mat_list.size(); n++)
-    {
+    for (int n = 0; n < mat_list.size(); n++) {
         MaterialParams *p = &mat_list[n];
         int id = optx.AddMaterial("optix_trace_surface", "trace_surface", "trace_shadow");
         optx.SetMaterialParams(id, p);
     }
 
     optx.CreateEnvmap("");
-    if (!m_envfile.empty())
-    {
+    if (!m_envfile.empty()) {
         char fname[1024];
         strcpy(fname, m_envfile.c_str());
-        if (gvdb.FindFile(fname, filepath))
-        {
+        if (gvdb.FindFile(fname, filepath)) {
             nvprintf("Loading env map %s.\n", filepath);
             optx.CreateEnvmap(filepath);
         }
     }
 
-    if (mat_list.size() == 0)
-    {
+    if (mat_list.size() == 0) {
         nvprintf("Error: No materials have been specified in scene.\n");
         nverror();
     }
 
     /// Add deep volume material
-    //mat_surf[1] = optx.AddMaterial("optix_trace_deep", "trace_deep", "trace_shadow");
+    // mat_surf[1] = optx.AddMaterial("optix_trace_deep", "trace_deep",
+    // "trace_shadow");
 
     // Add GVDB volume to the OptiX scene
     nvprintf("Adding GVDB Volume to OptiX graph.\n");
     char isect;
-    switch (shading)
-    {
-    case SHADE_TRILINEAR:
-        isect = 'S';
-        break;
-    case SHADE_VOLUME:
-        isect = 'D';
-        break;
-    case SHADE_LEVELSET:
-        isect = 'L';
-        break;
-    case SHADE_EMPTYSKIP:
-        isect = 'E';
-        break;
+    switch (shading) {
+        case SHADE_TRILINEAR:
+            isect = 'S';
+            break;
+        case SHADE_VOLUME:
+            isect = 'D';
+            break;
+        case SHADE_LEVELSET:
+            isect = 'L';
+            break;
+        case SHADE_EMPTYSKIP:
+            isect = 'E';
+            break;
     }
     Vector3DF volmin = gvdb.getVolMin();
     Vector3DF volmax = gvdb.getVolMax();
@@ -218,33 +206,31 @@ void Sample::RebuildOptixGraph(int shading)
     Model *m;
 
     // Add poly time series (optional)
-    if (m_polyon)
-    {
+    if (m_polyon) {
         m = gvdb.getScene()->getModel(0);
         nvprintf("Adding Polygon time series data.\n");
-        xform.SRT(Vector3DF(1, 0, 0), Vector3DF(0, 1, 0), Vector3DF(0, 0, 1), Vector3DF(0, 0, 0), m_renderscale);
+        xform.SRT(Vector3DF(1, 0, 0), Vector3DF(0, 1, 0), Vector3DF(0, 0, 1), Vector3DF(0, 0, 0),
+                  m_renderscale);
         optx.AddPolygons(m, m_polymat, xform);
     }
 
     // Add polygonal models
     int id;
-    for (int n = 0; n < model_list.size(); n++)
-    {
-        if (strlen(model_list[n].fpath) == 0)
-        {
+    for (int n = 0; n < model_list.size(); n++) {
+        if (strlen(model_list[n].fpath) == 0) {
             gvdb.FindFile(model_list[n].fname, filepath);
-        }
-        else
-        {
+        } else {
             sprintf(filepath, "%s%s", model_list[n].fpath, model_list[n].fname);
         }
         nvprintf("Load model %s...", filepath);
-        id = gvdb.getScene()->AddModel(filepath, model_list[n].scal, model_list[n].offs.x, model_list[n].offs.y, model_list[n].offs.z);
+        id = gvdb.getScene()->AddModel(filepath, model_list[n].scal, model_list[n].offs.x,
+                                       model_list[n].offs.y, model_list[n].offs.z);
         gvdb.CommitGeometry(id);
 
         m = gvdb.getScene()->getModel(id);
         xform.Identity();
-        xform.SRT(Vector3DF(1, 0, 0), Vector3DF(0, 1, 0), Vector3DF(0, 0, 1), Vector3DF(0, 0, 0), m_renderscale);
+        xform.SRT(Vector3DF(1, 0, 0), Vector3DF(0, 1, 0), Vector3DF(0, 0, 1), Vector3DF(0, 0, 0),
+                  m_renderscale);
         optx.AddPolygons(m, model_list[n].mat, xform);
         nvprintf(" Done.\n");
     }
@@ -274,8 +260,7 @@ void Sample::RebuildOptixGraph(int shading)
 #define M_VOLUME 7
 #define M_MATERIAL 8
 
-Sample::Sample()
-{
+Sample::Sample() {
     m_frame = -1;
     m_key = false;
     m_renderscale = 0.0;
@@ -283,211 +268,182 @@ Sample::Sample()
     m_io_method = C_IO;
 }
 
-void Sample::parse_value(int mode, std::string tag, std::string val)
-{
+void Sample::parse_value(int mode, std::string tag, std::string val) {
     MaterialParams *matp;
     Vector3DF vec;
 
-    switch (mode)
-    {
-    case M_POINTS:
-        if (strEq(tag, "path"))
-            m_pntpath = strTrim(val);
-        if (strEq(tag, "file"))
-            m_pntfile = strTrim(val);
-        if (strEq(tag, "mat"))
-            m_pntmat = strToNum(val);
-        if (strEq(tag, "frame"))
-            m_frame = strToNum(val);
-        if (strEq(tag, "fstep"))
-            m_fstep = strToNum(val);
-        break;
-    case M_POLYS:
-        if (strEq(tag, "path"))
-            m_polypath = val;
-        if (strEq(tag, "file"))
-            m_polyfile = val;
-        if (strEq(tag, "mat"))
-            m_polymat = strToNum(val);
-        if (strEq(tag, "frame"))
-            m_pframe = strToNum(val);
-        if (strEq(tag, "fstep"))
-            m_pfstep = strToNum(val);
-        break;
-    case M_MATERIAL:
-    {
-        int i = mat_list.size() - 1;
-        matp = &mat_list[i];
-        if (strEq(tag, "lightwid"))
-            matp->light_width = strToNum(val);
-        if (strEq(tag, "shwid"))
-            matp->shadow_width = strToNum(val);
-        if (strEq(tag, "shbias"))
-            matp->shadow_bias = strToNum(val);
-        if (strEq(tag, "ambient"))
-            strToVec3(val, "<", ",", ">", &matp->amb_color.x);
-        if (strEq(tag, "diffuse"))
-            strToVec3(val, "<", ",", ">", &matp->diff_color.x);
-        if (strEq(tag, "spec"))
-            strToVec3(val, "<", ",", ">", &matp->spec_color.x);
-        if (strEq(tag, "spow"))
-            matp->spec_power = strToNum(val);
-        if (strEq(tag, "env"))
-            strToVec3(val, "<", ",", ">", &matp->env_color.x);
-        if (strEq(tag, "reflwid"))
-            matp->refl_width = strToNum(val);
-        if (strEq(tag, "reflbias"))
-            matp->refl_bias = strToNum(val);
-        if (strEq(tag, "reflcolor"))
-            strToVec3(val, "<", ",", ">", &matp->refl_color.x);
-        if (strEq(tag, "refrwid"))
-            matp->refr_width = strToNum(val);
-        if (strEq(tag, "refrbias"))
-            matp->refr_bias = strToNum(val);
-        if (strEq(tag, "refrcolor"))
-            strToVec3(val, "<", ",", ">", &matp->refr_color.x);
-        if (strEq(tag, "refroffs"))
-            matp->refr_offset = strToNum(val);
-        if (strEq(tag, "refrior"))
-            matp->refr_ior = strToNum(val);
-        if (strEq(tag, "reframt"))
-            matp->refr_amount = strToNum(val);
-    }
-    break;
-    case M_RENDER:
-        if (strEq(tag, "width"))
-            m_w = strToNum(val);
-        if (strEq(tag, "height"))
-            m_h = strToNum(val);
-        if (strEq(tag, "samples"))
-            m_max_samples = strToNum(val);
-        if (strEq(tag, "backclr"))
-        {
-            strToVec3(val, "<", ",", ">", &vec.x);
-            gvdb.getScene()->SetBackgroundClr(vec.x, vec.y, vec.z, 1.0);
-        }
-        if (strEq(tag, "envmap"))
-            m_envfile = val;
-        if (strEq(tag, "outpath"))
-            m_outpath = val;
-        if (strEq(tag, "outfile"))
-            m_outfile = val;
+    switch (mode) {
+        case M_POINTS:
+            if (strEq(tag, "path"))
+                m_pntpath = strTrim(val);
+            if (strEq(tag, "file"))
+                m_pntfile = strTrim(val);
+            if (strEq(tag, "mat"))
+                m_pntmat = strToNum(val);
+            if (strEq(tag, "frame"))
+                m_frame = strToNum(val);
+            if (strEq(tag, "fstep"))
+                m_fstep = strToNum(val);
+            break;
+        case M_POLYS:
+            if (strEq(tag, "path"))
+                m_polypath = val;
+            if (strEq(tag, "file"))
+                m_polyfile = val;
+            if (strEq(tag, "mat"))
+                m_polymat = strToNum(val);
+            if (strEq(tag, "frame"))
+                m_pframe = strToNum(val);
+            if (strEq(tag, "fstep"))
+                m_pfstep = strToNum(val);
+            break;
+        case M_MATERIAL: {
+            int i = mat_list.size() - 1;
+            matp = &mat_list[i];
+            if (strEq(tag, "lightwid"))
+                matp->light_width = strToNum(val);
+            if (strEq(tag, "shwid"))
+                matp->shadow_width = strToNum(val);
+            if (strEq(tag, "shbias"))
+                matp->shadow_bias = strToNum(val);
+            if (strEq(tag, "ambient"))
+                strToVec3(val, "<", ",", ">", &matp->amb_color.x);
+            if (strEq(tag, "diffuse"))
+                strToVec3(val, "<", ",", ">", &matp->diff_color.x);
+            if (strEq(tag, "spec"))
+                strToVec3(val, "<", ",", ">", &matp->spec_color.x);
+            if (strEq(tag, "spow"))
+                matp->spec_power = strToNum(val);
+            if (strEq(tag, "env"))
+                strToVec3(val, "<", ",", ">", &matp->env_color.x);
+            if (strEq(tag, "reflwid"))
+                matp->refl_width = strToNum(val);
+            if (strEq(tag, "reflbias"))
+                matp->refl_bias = strToNum(val);
+            if (strEq(tag, "reflcolor"))
+                strToVec3(val, "<", ",", ">", &matp->refl_color.x);
+            if (strEq(tag, "refrwid"))
+                matp->refr_width = strToNum(val);
+            if (strEq(tag, "refrbias"))
+                matp->refr_bias = strToNum(val);
+            if (strEq(tag, "refrcolor"))
+                strToVec3(val, "<", ",", ">", &matp->refr_color.x);
+            if (strEq(tag, "refroffs"))
+                matp->refr_offset = strToNum(val);
+            if (strEq(tag, "refrior"))
+                matp->refr_ior = strToNum(val);
+            if (strEq(tag, "reframt"))
+                matp->refr_amount = strToNum(val);
+        } break;
+        case M_RENDER:
+            if (strEq(tag, "width"))
+                m_w = strToNum(val);
+            if (strEq(tag, "height"))
+                m_h = strToNum(val);
+            if (strEq(tag, "samples"))
+                m_max_samples = strToNum(val);
+            if (strEq(tag, "backclr")) {
+                strToVec3(val, "<", ",", ">", &vec.x);
+                gvdb.getScene()->SetBackgroundClr(vec.x, vec.y, vec.z, 1.0);
+            }
+            if (strEq(tag, "envmap"))
+                m_envfile = val;
+            if (strEq(tag, "outpath"))
+                m_outpath = val;
+            if (strEq(tag, "outfile"))
+                m_outfile = val;
 
-        break;
-    case M_VOLUME:
-    {
-        nvdb::Scene *scn = gvdb.getScene();
-        if (strEq(tag, "scale") && m_renderscale == 0)
-            m_renderscale = strToNum(val);
-        if (strEq(tag, "steps"))
-        {
-            strToVec3(val, "<", ",", ">", &vec.x);
-            scn->SetSteps(vec.x, vec.y, vec.z);
-        }
-        if (strEq(tag, "extinct"))
-        {
-            strToVec3(val, "<", ",", ">", &vec.x);
-            scn->SetExtinct(vec.x, vec.y, vec.z);
-        }
-        if (strEq(tag, "range"))
-        {
-            strToVec3(val, "<", ",", ">", &vec.x);
-            scn->SetVolumeRange(vec.x, vec.y, vec.z);
-        }
-        if (strEq(tag, "cutoff"))
-        {
-            strToVec3(val, "<", ",", ">", &vec.x);
-            scn->SetCutoff(vec.x, vec.y, vec.z);
-        }
-        if (strEq(tag, "smooth"))
-            m_smooth = strToNum(val);
-        if (strEq(tag, "smoothp"))
-        {
-            strToVec3(val, "<", ",", ">", &vec.x);
-            m_smoothp = vec;
-        }
-    }
-    break;
-    case M_CAMERA:
-    {
-        Camera3D *cam = gvdb.getScene()->getCamera();
-        if (strEq(tag, "angs"))
-        {
-            strToVec3(val, "<", ",", ">", &vec.x);
-            cam->setAng(vec);
-        }
-        if (strEq(tag, "target"))
-        {
-            strToVec3(val, "<", ",", ">", &vec.x);
-            vec *= m_renderscale;
-            cam->setToPos(vec.x, vec.y, vec.z);
-        }
-        if (strEq(tag, "dist"))
-        {
-            cam->setDist(strToNum(val) * m_renderscale);
-        }
-        if (strEq(tag, "fov"))
-        {
-            cam->setFov(strToNum(val));
-        }
-        cam->setOrbit(cam->getAng(), cam->getToPos(), cam->getOrbitDist(), cam->getDolly());
-    }
-    break;
-    case M_LIGHT:
-    {
-        Light *lgt = gvdb.getScene()->getLight();
-        if (strEq(tag, "angs"))
-        {
-            strToVec3(val, "<", ",", ">", &vec.x);
-            lgt->setAng(vec);
-        }
-        if (strEq(tag, "target"))
-        {
-            strToVec3(val, "<", ",", ">", &vec.x);
-            vec *= m_renderscale;
-            lgt->setToPos(vec.x, vec.y, vec.z);
-        }
-        if (strEq(tag, "dist"))
-        {
-            lgt->setDist(strToNum(val) * m_renderscale);
-        }
-        if (strEq(tag, "fov"))
-        {
-            lgt->setFov(strToNum(val));
-        }
-        lgt->setOrbit(lgt->getAng(), lgt->getToPos(), lgt->getOrbitDist(), lgt->getDolly());
-    }
-    break;
-    case M_MODEL:
-    {
-        int id = model_list.size() - 1;
-        if (strEq(tag, "path"))
-            strncpy(model_list[id].fpath, val.c_str(), 1024);
-        if (strEq(tag, "file"))
-            strncpy(model_list[id].fname, val.c_str(), 1024);
-        if (strEq(tag, "mat"))
-            model_list[id].mat = strToNum(val);
-        if (strEq(tag, "scale"))
-            model_list[id].scal = strToNum(val);
-        if (strEq(tag, "offset"))
-        {
-            strToVec3(val, "<", ",", ">", &vec.x);
-            model_list[id].offs = vec;
-        }
-    }
-    break;
+            break;
+        case M_VOLUME: {
+            nvdb::Scene *scn = gvdb.getScene();
+            if (strEq(tag, "scale") && m_renderscale == 0)
+                m_renderscale = strToNum(val);
+            if (strEq(tag, "steps")) {
+                strToVec3(val, "<", ",", ">", &vec.x);
+                scn->SetSteps(vec.x, vec.y, vec.z);
+            }
+            if (strEq(tag, "extinct")) {
+                strToVec3(val, "<", ",", ">", &vec.x);
+                scn->SetExtinct(vec.x, vec.y, vec.z);
+            }
+            if (strEq(tag, "range")) {
+                strToVec3(val, "<", ",", ">", &vec.x);
+                scn->SetVolumeRange(vec.x, vec.y, vec.z);
+            }
+            if (strEq(tag, "cutoff")) {
+                strToVec3(val, "<", ",", ">", &vec.x);
+                scn->SetCutoff(vec.x, vec.y, vec.z);
+            }
+            if (strEq(tag, "smooth"))
+                m_smooth = strToNum(val);
+            if (strEq(tag, "smoothp")) {
+                strToVec3(val, "<", ",", ">", &vec.x);
+                m_smoothp = vec;
+            }
+        } break;
+        case M_CAMERA: {
+            Camera3D *cam = gvdb.getScene()->getCamera();
+            if (strEq(tag, "angs")) {
+                strToVec3(val, "<", ",", ">", &vec.x);
+                cam->setAng(vec);
+            }
+            if (strEq(tag, "target")) {
+                strToVec3(val, "<", ",", ">", &vec.x);
+                vec *= m_renderscale;
+                cam->setToPos(vec.x, vec.y, vec.z);
+            }
+            if (strEq(tag, "dist")) {
+                cam->setDist(strToNum(val) * m_renderscale);
+            }
+            if (strEq(tag, "fov")) {
+                cam->setFov(strToNum(val));
+            }
+            cam->setOrbit(cam->getAng(), cam->getToPos(), cam->getOrbitDist(), cam->getDolly());
+        } break;
+        case M_LIGHT: {
+            Light *lgt = gvdb.getScene()->getLight();
+            if (strEq(tag, "angs")) {
+                strToVec3(val, "<", ",", ">", &vec.x);
+                lgt->setAng(vec);
+            }
+            if (strEq(tag, "target")) {
+                strToVec3(val, "<", ",", ">", &vec.x);
+                vec *= m_renderscale;
+                lgt->setToPos(vec.x, vec.y, vec.z);
+            }
+            if (strEq(tag, "dist")) {
+                lgt->setDist(strToNum(val) * m_renderscale);
+            }
+            if (strEq(tag, "fov")) {
+                lgt->setFov(strToNum(val));
+            }
+            lgt->setOrbit(lgt->getAng(), lgt->getToPos(), lgt->getOrbitDist(), lgt->getDolly());
+        } break;
+        case M_MODEL: {
+            int id = model_list.size() - 1;
+            if (strEq(tag, "path"))
+                strncpy(model_list[id].fpath, val.c_str(), 1024);
+            if (strEq(tag, "file"))
+                strncpy(model_list[id].fname, val.c_str(), 1024);
+            if (strEq(tag, "mat"))
+                model_list[id].mat = strToNum(val);
+            if (strEq(tag, "scale"))
+                model_list[id].scal = strToNum(val);
+            if (strEq(tag, "offset")) {
+                strToVec3(val, "<", ",", ">", &vec.x);
+                model_list[id].offs = vec;
+            }
+        } break;
     };
 }
 
-void Sample::parse_scene(std::string fname)
-{
+void Sample::parse_scene(std::string fname) {
     int mode = M_GLOBAL;
 
     char fn[1024];
     strcpy(fn, fname.c_str());
     char fpath[1024];
-    if (!gvdb.FindFile(fn, fpath))
-    {
+    if (!gvdb.FindFile(fn, fpath)) {
         printf("Error: Cannot find scene file %s\n", fname.c_str());
     }
     FILE *fp = fopen(fpath, "rt");
@@ -495,18 +451,15 @@ void Sample::parse_scene(std::string fname)
     std::string lin, tag;
     Vector3DF vec;
 
-    while (!feof(fp))
-    {
+    while (!feof(fp)) {
         fgets(buf, 2048, fp);
         lin = buf;
 
-        if (lin.find("points") == 0)
-        {
+        if (lin.find("points") == 0) {
             m_pnton = true;
             mode = M_POINTS;
         }
-        if (lin.find("polys") == 0)
-        {
+        if (lin.find("polys") == 0) {
             m_polyon = true;
             mode = M_POLYS;
         }
@@ -520,13 +473,11 @@ void Sample::parse_scene(std::string fname)
             mode = M_RENDER;
         if (lin.find("volume") == 0)
             mode = M_VOLUME;
-        if (lin.find("material") == 0)
-        {
+        if (lin.find("material") == 0) {
             mode = M_MATERIAL;
             add_material(false);
         }
-        if (lin.find("model") == 0)
-        {
+        if (lin.find("model") == 0) {
             mode = M_MODEL;
             add_model();
         }
@@ -539,16 +490,13 @@ void Sample::parse_scene(std::string fname)
     fclose(fp);
 }
 
-void Sample::on_arg(std::string arg, std::string val)
-{
-    if (arg.compare("-in") == 0)
-    {
+void Sample::on_arg(std::string arg, std::string val) {
+    if (arg.compare("-in") == 0) {
         m_infile = val;
         nvprintf("input: %s\n", m_infile.c_str());
     }
 
-    if (arg.compare("-frame") == 0)
-    {
+    if (arg.compare("-frame") == 0) {
         m_frame = strToNum(val);
         nvprintf("frame: %d\n", m_frame);
     }
@@ -556,26 +504,22 @@ void Sample::on_arg(std::string arg, std::string val)
     if (arg.compare("-key") == 0)
         m_key = true;
 
-    if (arg.compare("-info") == 0)
-    {
+    if (arg.compare("-info") == 0) {
         nvprintf("print gvdb info\n");
         m_info = true;
     }
 
-    if (arg.compare("-scale") == 0)
-    {
+    if (arg.compare("-scale") == 0) {
         m_renderscale = strToNum(val);
         nvprintf("render scale: %f\n", m_renderscale);
     }
-    if (arg.compare("-io") == 0)
-    {
+    if (arg.compare("-io") == 0) {
         m_io_method = strToNum(val);
         nvprintf("io method: %d\n", m_io_method);
     }
 }
 
-bool Sample::init()
-{
+bool Sample::init() {
     m_w = getWidth(); // window width & height
     m_h = getHeight();
     mouse_down = -1;
@@ -610,8 +554,7 @@ bool Sample::init()
     init2D("arial");
 
     // Initialize Optix Scene
-    if (m_render_optix)
-    {
+    if (m_render_optix) {
         optx.InitializeOptix(m_w, m_h);
     }
 
@@ -684,8 +627,7 @@ bool Sample::init()
     return true;
 }
 
-void Sample::reshape(int w, int h)
-{
+void Sample::reshape(int w, int h) {
     // Resize the opengl screen texture
     glViewport(0, 0, w, h);
     createScreenQuadGL(&gl_screen_tex, w, h);
@@ -703,8 +645,7 @@ void Sample::reshape(int w, int h)
     postRedisplay();
 }
 
-void Sample::load_points(std::string pntpath, std::string pntfile, int frame)
-{
+void Sample::load_points(std::string pntpath, std::string pntfile, int frame) {
     // Load points
     char filepath[1024];
     char srcfile[1024];
@@ -712,12 +653,9 @@ void Sample::load_points(std::string pntpath, std::string pntfile, int frame)
     sprintf(pntfmt, "%s%s", m_pntpath.c_str(), m_pntfile.c_str());
     sprintf(srcfile, pntfmt, frame);
 
-    if (pntpath.empty())
-    {
+    if (pntpath.empty()) {
         gvdb.FindFile(srcfile, filepath);
-    }
-    else
-    {
+    } else {
         sprintf(filepath, "%s", srcfile);
     }
 
@@ -732,8 +670,7 @@ void Sample::load_points(std::string pntpath, std::string pntfile, int frame)
     // Read header
     PERF_PUSH("  Open file");
 #if WINDOWS
-    if (m_io_method == WIN_IO)
-    {
+    if (m_io_method == WIN_IO) {
         HANDLE fph = CreateFile(filepath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
                                 FILE_ATTRIBUTE_NORMAL, // | FILE_FLAG_NO_BUFFERING,
                                 NULL);
@@ -746,15 +683,12 @@ void Sample::load_points(std::string pntpath, std::string pntfile, int frame)
         ReadFile(fph, &wMax.y, sizeof(float), &bread, NULL);
         ReadFile(fph, &wMax.z, sizeof(float), &bread, NULL);
         CloseHandle(fph);
-    }
-    else
+    } else
 #endif
-        if (m_io_method == C_IO)
-    {
+        if (m_io_method == C_IO) {
         // Standard read for header info whne using C_IO
         FILE *fph = fopen(filepath, "rb");
-        if (fph == 0)
-        {
+        if (fph == 0) {
             printf("Cannot open file: %s\n", filepath);
             exit(-1);
         }
@@ -771,8 +705,7 @@ void Sample::load_points(std::string pntpath, std::string pntfile, int frame)
 
 // Read data from disk to CPU
 #if WINDOWS
-    if (m_io_method == WIN_IO)
-    {
+    if (m_io_method == WIN_IO) {
 
         // Allocate memory for points
         ushort outbuf[3];
@@ -793,16 +726,13 @@ void Sample::load_points(std::string pntpath, std::string pntfile, int frame)
         PERF_PUSH("Commit");
         gvdb.CommitData(m_pnt1); // Commit to GPU
         PERF_POP();
-    }
-    else
+    } else
 #endif
-        if (m_io_method == C_IO)
-    {
+        if (m_io_method == C_IO) {
         // C-style IO
         PERF_PUSH("Read");
         FILE *fph = fopen(filepath, "rb");
-        if (fph == 0)
-        {
+        if (fph == 0) {
             printf("Cannot open file: %s\n", filepath);
             exit(-1);
         }
@@ -821,7 +751,7 @@ void Sample::load_points(std::string pntpath, std::string pntfile, int frame)
         gvdb.AllocData(m_pnts, m_numpnts, sizeof(Vector3DF), false);
         PERF_POP();
 
-        //fseek(fp, 28, SEEK_SET);
+        // fseek(fp, 28, SEEK_SET);
         fread(m_pnt1.cpu, 3 * sizeof(ushort), m_numpnts, fph);
         PERF_POP();
         PERF_PUSH("Commit");
@@ -831,8 +761,10 @@ void Sample::load_points(std::string pntpath, std::string pntfile, int frame)
 
     // Convert format and transform
     PERF_PUSH("  Convert");
-    Vector3DF wdelta((wMax.x - wMin.x) / 65535.0f, (wMax.y - wMin.y) / 65535.0f, (wMax.z - wMin.z) / 65535.0f);
-    gvdb.ConvertAndTransform(m_pnt1, 2, m_pnts, 4, m_numpnts, wMin, wdelta, Vector3DF(0, 0, 0), Vector3DF(m_renderscale, m_renderscale, m_renderscale));
+    Vector3DF wdelta((wMax.x - wMin.x) / 65535.0f, (wMax.y - wMin.y) / 65535.0f,
+                     (wMax.z - wMin.z) / 65535.0f);
+    gvdb.ConvertAndTransform(m_pnt1, 2, m_pnts, 4, m_numpnts, wMin, wdelta, Vector3DF(0, 0, 0),
+                             Vector3DF(m_renderscale, m_renderscale, m_renderscale));
     PERF_POP();
 
     // Set points for GVDB
@@ -842,8 +774,8 @@ void Sample::load_points(std::string pntpath, std::string pntfile, int frame)
     nvprintf("  Done.\n");
 }
 
-void Sample::load_polys(std::string polypath, std::string polyfile, int frame, float pscale, Vector3DF poffs, int pmat)
-{
+void Sample::load_polys(std::string polypath, std::string polyfile, int frame, float pscale,
+                        Vector3DF poffs, int pmat) {
     bool bFirst = false;
     char fmt[1024], fpath[1024];
 
@@ -856,8 +788,7 @@ void Sample::load_polys(std::string polypath, std::string polyfile, int frame, f
     nvprintf("Load polydata from %s...", fpath);
 
     // create new model if needed
-    if (m == 0x0)
-    {
+    if (m == 0x0) {
         bFirst = true;
         m = gvdb.getScene()->AddModel();
     }
@@ -869,30 +800,27 @@ void Sample::load_polys(std::string polypath, std::string polyfile, int frame, f
     nvprintf(" Done.\n");
 }
 
-void Sample::ReportMemory()
-{
+void Sample::ReportMemory() {
     std::vector<std::string> outlist;
     gvdb.MemoryUsage("gvdb", outlist);
     for (int n = 0; n < outlist.size(); n++)
         nvprintf("%s", outlist[n].c_str());
 }
 
-void Sample::clear_gvdb()
-{
+void Sample::clear_gvdb() {
     // Clear
     DataPtr temp;
     gvdb.SetPoints(temp, temp, temp);
     gvdb.CleanAux();
 }
 
-void Sample::render_update()
-{
+void Sample::render_update() {
     if (!m_pnton)
         return;
 
     // Rebuild GVDB Render topology
     PERF_PUSH("Dynamic Topology");
-    //gvdb.RequestFullRebuild ( true );
+    // gvdb.RequestFullRebuild ( true );
     gvdb.RebuildTopology(m_numpnts, m_radius * 2.0, m_origin);
     gvdb.FinishTopology(false, true); // false. no commit pool	false. no compute bounds
     gvdb.UpdateAtlas();
@@ -904,63 +832,66 @@ void Sample::render_update()
 
     int scPntLen = 0;
     int subcell_size = 4;
+
+    // DEBUG: scatter
+    // printf("before ------ \n");
+    gvdb.InsertPoints(m_numpnts, m_origin, false);
+    // printf("after insert ------ \n");
+    gvdb.ScatterDensity(m_numpnts, m_radius, 1.0, m_origin, false, false);
+    // printf("after scatter ------ \n");
+
     gvdb.InsertPointsSubcell_FP16(subcell_size, m_numpnts, m_radius, m_origin, scPntLen);
     gvdb.GatherLevelSet_FP16(subcell_size, m_numpnts, m_radius, m_origin, scPntLen, 0, 0);
     gvdb.UpdateApron(0, 3.0f);
+
     PERF_POP();
 
-    if (m_smooth > 0)
-    {
+    if (m_smooth > 0) {
         PERF_PUSH("Smooth");
         nvprintf("Smooth: %d, %f %f %f\n", m_smooth, m_smoothp.x, m_smoothp.y, m_smoothp.z);
         gvdb.Compute(FUNC_SMOOTH, 0, m_smooth, m_smoothp, true, 3.0f); // 8x smooth iterations
         PERF_POP();
     }
 
-    if (m_render_optix)
-    {
+    if (m_render_optix) {
         PERF_PUSH("Update OptiX");
         optx.UpdateVolume(&gvdb); // GVDB topology has changed
         PERF_POP();
     }
 
-    if (m_info)
-    {
+    if (m_info) {
         ReportMemory();
         gvdb.Measure(true);
     }
 }
 
-void Sample::render_frame()
-{
+void Sample::render_frame() {
     // Render frame
     gvdb.getScene()->SetCrossSection(m_origin, Vector3DF(0, 0, -1));
 
     int sh;
-    switch (m_shade_style)
-    {
-    case 0:
-        sh = SHADE_OFF;
-        break;
-    case 1:
-        sh = SHADE_VOXEL;
-        break;
-    case 2:
-        sh = SHADE_EMPTYSKIP;
-        break;
-    case 3:
-        sh = SHADE_SECTION3D;
-        break;
-    case 4:
-        sh = SHADE_VOLUME;
-        break;
-    case 5:
-        sh = SHADE_LEVELSET;
-        break;
+    switch (m_shade_style) {
+        case 0:
+            sh = SHADE_OFF;
+            break;
+        case 1:
+            sh = SHADE_VOXEL;
+            break;
+        case 2:
+            sh = SHADE_EMPTYSKIP;
+            break;
+        case 3:
+            sh = SHADE_SECTION3D;
+            break;
+        case 4:
+            sh = SHADE_VOLUME;
+            break;
+        case 5:
+            sh = SHADE_LEVELSET;
+            break;
     };
 
-    if (m_render_optix)
-    {
+    if (m_render_optix) {
         // OptiX render
         PERF_PUSH("Raytrace");
         optx.Render(&gvdb, SHADE_LEVELSET, 0);
@@ -968,9 +899,7 @@ void Sample::render_frame()
         PERF_PUSH("ReadToGL");
         optx.ReadOutputTex(gl_screen_tex);
         PERF_POP();
-    }
-    else
-    {
+    } else {
         // CUDA render
         PERF_PUSH("Raytrace");
         gvdb.Render(sh, 0, 0);
@@ -982,8 +911,7 @@ void Sample::render_frame()
     renderScreenQuadGL(gl_screen_tex); // Render screen-space quad with texture
 }
 
-void Sample::draw_topology()
-{
+void Sample::draw_topology() {
     Vector3DF clrs[10];
     clrs[0] = Vector3DF(0, 0, 1);          // blue
     clrs[1] = Vector3DF(0, 1, 0);          // green
@@ -1001,25 +929,23 @@ void Sample::draw_topology()
 
     Camera3D *cam = gvdb.getScene()->getCamera();
     start3D(cam);
-    for (int lev = 0; lev < 5; lev++)
-    { // draw all levels
+    for (int lev = 0; lev < 5; lev++) { // draw all levels
         int node_cnt = g->getNumTotalNodes(lev);
-        for (int n = 0; n < node_cnt; n++)
-        { // draw all nodes at this level
+        for (int n = 0; n < node_cnt; n++) { // draw all nodes at this level
             node = g->getNodeAtLevel(n, lev);
             if (!int(node->mFlags))
                 continue;
 
             bmin = g->getWorldMin(node); // get node bounding box
             bmax = g->getWorldMax(node); // draw node as a box
-            drawBox3D(bmin.x, bmin.y, bmin.z, bmax.x, bmax.y, bmax.z, clrs[lev].x, clrs[lev].y, clrs[lev].z, 1);
+            drawBox3D(bmin.x, bmin.y, bmin.z, bmax.x, bmax.y, bmax.z, clrs[lev].x, clrs[lev].y,
+                      clrs[lev].z, 1);
         }
     }
     end3D();
 }
 
-void Sample::draw_points()
-{
+void Sample::draw_points() {
     Vector3DF *fpos = (Vector3DF *)m_pnts.cpu;
 
     Vector3DF p1, p2;
@@ -1027,8 +953,7 @@ void Sample::draw_points()
 
     Camera3D *cam = gvdb.getScene()->getCamera();
     start3D(cam);
-    for (int n = 0; n < m_numpnts; n++)
-    {
+    for (int n = 0; n < m_numpnts; n++) {
         p1 = *fpos++;
         p2 = p1 + Vector3DF(0.01, 0.01, 0.01);
         c = p1 / Vector3DF(256.0, 256, 256);
@@ -1037,19 +962,16 @@ void Sample::draw_points()
     end3D();
 }
 
-Vector3DF interp(Vector3DF a, Vector3DF b, float t)
-{
+Vector3DF interp(Vector3DF a, Vector3DF b, float t) {
     return Vector3DF(a.x + t * (b.x - a.x), a.y + t * (b.y - a.y), a.z + t * (b.z - a.z));
 }
 
-void Sample::display()
-{
+void Sample::display() {
     // Update sample convergence
     if (m_render_optix)
         optx.SetSample(m_frame, m_sample);
 
-    if (m_key && m_frame >= 1100 && m_frame <= 1340)
-    {
+    if (m_key && m_frame >= 1100 && m_frame <= 1340) {
         float u = float(m_frame - 1100) / (1340 - 1100);
         Vector3DF a0, t0, d0;
         a0 = interp(Vector3DF(0, 35, 0), Vector3DF(0, 24.6, 0), u);
@@ -1064,20 +986,17 @@ void Sample::display()
     // Render frame
     render_frame();
 
-    if (m_sample % 8 == 0 && m_sample > 0)
-    {
+    if (m_sample % 8 == 0 && m_sample > 0) {
         int pct = (m_sample * 100) / m_max_samples;
         nvprintf("%d%%%% ", pct);
     }
 
-    if (++m_sample >= m_max_samples)
-    {
+    if (++m_sample >= m_max_samples) {
         m_sample = 0;
 
         nvprintf("100%%%%\n");
 
-        if (m_save_png && m_render_optix)
-        {
+        if (m_save_png && m_render_optix) {
             // Save current frame to PNG
             char png_name[1024];
             char pfmt[1024];
@@ -1093,8 +1012,7 @@ void Sample::display()
         if (m_pnton)
             load_points(m_pntpath, m_pntfile, m_frame);
 
-        if (m_polyon)
-        {
+        if (m_polyon) {
             m_pframe += m_pfstep;
             load_polys(m_polypath, m_polyfile, m_pframe, m_pscale, m_poffset, m_polymat);
             if (m_render_optix)
@@ -1104,65 +1022,57 @@ void Sample::display()
     }
 
     /*glDisable(GL_DEPTH_TEST);
-	glClearDepth(1.0);
-	glClear(GL_DEPTH_BUFFER_BIT);
+        glClearDepth(1.0);
+        glClear(GL_DEPTH_BUFFER_BIT);
 
-	if ( m_show_points) draw_points ();
-	if ( m_show_topo ) draw_topology ();
+        if ( m_show_points) draw_points ();
+        if ( m_show_topo ) draw_topology ();
 
-	draw3D();
-	drawGui(0);
-	draw2D(); */
+        draw3D();
+        drawGui(0);
+        draw2D(); */
 
     postRedisplay(); // Post redisplay since simulation is continuous
 }
 
-void Sample::motion(int x, int y, int dx, int dy)
-{
+void Sample::motion(int x, int y, int dx, int dy) {
     // Get camera for GVDB Scene
     Camera3D *cam = gvdb.getScene()->getCamera();
     Light *lgt = gvdb.getScene()->getLight();
     bool shift = (getMods() & NVPWindow::KMOD_SHIFT); // Shift-key to modify light
 
-    switch (mouse_down)
-    {
-    case NVPWindow::MOUSE_BUTTON_LEFT:
-    {
-        // Adjust orbit angles
-        Vector3DF angs = (shift ? lgt->getAng() : cam->getAng());
-        angs.x += dx * 0.2f;
-        angs.y -= dy * 0.2f;
-        if (shift)
-            lgt->setOrbit(angs, lgt->getToPos(), lgt->getOrbitDist(), lgt->getDolly());
-        else
-            cam->setOrbit(angs, cam->getToPos(), cam->getOrbitDist(), cam->getDolly());
-        m_sample = 0;
-    }
-    break;
+    switch (mouse_down) {
+        case NVPWindow::MOUSE_BUTTON_LEFT: {
+            // Adjust orbit angles
+            Vector3DF angs = (shift ? lgt->getAng() : cam->getAng());
+            angs.x += dx * 0.2f;
+            angs.y -= dy * 0.2f;
+            if (shift)
+                lgt->setOrbit(angs, lgt->getToPos(), lgt->getOrbitDist(), lgt->getDolly());
+            else
+                cam->setOrbit(angs, cam->getToPos(), cam->getOrbitDist(), cam->getDolly());
+            m_sample = 0;
+        } break;
 
-    case NVPWindow::MOUSE_BUTTON_MIDDLE:
-    {
-        // Adjust target pos
-        cam->moveRelative(float(dx) * cam->getOrbitDist() / 1000, float(-dy) * cam->getOrbitDist() / 1000, 0);
-        m_sample = 0;
-    }
-    break;
+        case NVPWindow::MOUSE_BUTTON_MIDDLE: {
+            // Adjust target pos
+            cam->moveRelative(float(dx) * cam->getOrbitDist() / 1000,
+                              float(-dy) * cam->getOrbitDist() / 1000, 0);
+            m_sample = 0;
+        } break;
 
-    case NVPWindow::MOUSE_BUTTON_RIGHT:
-    {
-        // Adjust dist
-        float dist = (shift ? lgt->getOrbitDist() : cam->getOrbitDist());
-        dist -= dy;
-        if (shift)
-            lgt->setOrbit(lgt->getAng(), lgt->getToPos(), dist, cam->getDolly());
-        else
-            cam->setOrbit(cam->getAng(), cam->getToPos(), dist, cam->getDolly());
-        m_sample = 0;
+        case NVPWindow::MOUSE_BUTTON_RIGHT: {
+            // Adjust dist
+            float dist = (shift ? lgt->getOrbitDist() : cam->getOrbitDist());
+            dist -= dy;
+            if (shift)
+                lgt->setOrbit(lgt->getAng(), lgt->getToPos(), dist, cam->getDolly());
+            else
+                cam->setOrbit(cam->getAng(), cam->getToPos(), dist, cam->getDolly());
+            m_sample = 0;
+        } break;
     }
-    break;
-    }
-    if (m_sample == 0)
-    {
+    if (m_sample == 0) {
         nvprintf("cam ang: %f %f %f\n", cam->getAng().x, cam->getAng().y, cam->getAng().z);
         nvprintf("cam dst: %f\n", cam->getOrbitDist());
         nvprintf("cam to:  %f %f %f\n", cam->getToPos().x, cam->getToPos().y, cam->getToPos().z);
@@ -1170,31 +1080,27 @@ void Sample::motion(int x, int y, int dx, int dy)
     }
 }
 
-void Sample::keyboardchar(unsigned char key, int mods, int x, int y)
-{
-    switch (key)
-    {
-    case '1':
-        m_show_points = !m_show_points;
-        break;
-    case '2':
-        m_show_topo = !m_show_topo;
-        break;
+void Sample::keyboardchar(unsigned char key, int mods, int x, int y) {
+    switch (key) {
+        case '1':
+            m_show_points = !m_show_points;
+            break;
+        case '2':
+            m_show_topo = !m_show_topo;
+            break;
     };
 }
 
-void Sample::mouse(NVPWindow::MouseButton button, NVPWindow::ButtonAction state, int mods, int x, int y)
-{
+void Sample::mouse(NVPWindow::MouseButton button, NVPWindow::ButtonAction state, int mods, int x,
+                   int y) {
     if (guiHandler(button, state, x, y))
         return;
     mouse_down = (state == NVPWindow::BUTTON_PRESS) ? button : -1;
 }
 
-int sample_main(int argc, const char **argv)
-{
-    return sample_obj.run("GVDB Sparse Volumes - gPointCloud Sample", "pointcloud", argc, argv, 1280, 760, 4, 5, 30);
+int sample_main(int argc, const char **argv) {
+    return sample_obj.run("GVDB Sparse Volumes - gPointCloud Sample", "pointcloud", argc, argv,
+                          1280, 760, 4, 5, 30);
 }
 
-void sample_print(int argc, char const *argv)
-{
-}
+void sample_print(int argc, char const *argv) {}

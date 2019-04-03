@@ -1,0 +1,9 @@
+---
+Language: Cpp
+BasedOnStyle: LLVM
+ColumnLimit: 100
+IndentWidth: 4
+TabWidth: 4
+ObjCBlockIndentWidth: 4
+IndentCaseLabels: true
+...

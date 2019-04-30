@@ -1,7 +1,7 @@
 # Build files
 
 cmake_minimum_required ( VERSION 3.5 )
-set ( PROJNAME p2g-sample )
+set ( PROJNAME p2g-scatter )
 Project ( ${PROJNAME} )
 
 ####################################################################################

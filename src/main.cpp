@@ -605,7 +605,7 @@ bool Sample::init() {
     gvdb.Configure(3, 3, 3, 3, 4);
     gvdb.SetChannelDefault(32, 32, 1);
     gvdb.AddChannel(0, T_FLOAT, 1, F_LINEAR);
-    gvdb.FillChannel(0, Vector4DF(0, 0, 0, 0));
+    gvdb.AddChannel(1, T_FLOAT, 1, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false);
 
     // Initialize GUIs
     start_guis(m_w, m_h);
@@ -828,21 +828,29 @@ void Sample::render_update() {
 
     // Gather points to level set
     PERF_PUSH("Points-to-Voxels");
-    gvdb.ClearChannel(0);
 
-    int scPntLen = 0;
-    int subcell_size = 4;
-
-    // DEBUG: scatter
-    // printf("before ------ \n");
+    // Scatter level set to channel 1, then copy channel 1 to texture channel 0 to be rendered
+    gvdb.FillChannel(1, Vector4DF(3.0, 0.0, 0.0, 0));
     gvdb.InsertPoints(m_numpnts, m_origin, false);
-    // printf("after insert ------ \n");
-    gvdb.ScatterDensity(m_numpnts, m_radius, 1.0, m_origin, false, false);
-    // printf("after scatter ------ \n");
+    gvdb.ScatterReduceLevelSet(m_numpnts, m_radius, m_origin, true, 1, 3);
+    gvdb.CopyLinearChannelToTextureChannel(0, 1);
+    // TODO: proper handling of scatter writes to apron values
 
+    // Gather to channel 0
+    /*int scPntLen = 0;
+    int subcell_size = 4;
+    gvdb.FillChannel(0, Vector4DF(3.0, 0.0, 0.0, 0));
+    gvdb.InsertPointsSubcell(subcell_size, m_numpnts, m_radius, m_origin, scPntLen);
+    gvdb.GatherLevelSet(subcell_size, m_numpnts, m_radius, m_origin, scPntLen, 0, 0);
+    gvdb.UpdateApron(0, 3.0f);*/
+
+    // Gather to channel 0, using 16-bit floating points to save GPU memory
+    /*int scPntLen = 0;
+    int subcell_size = 4;
+    gvdb.FillChannel(0, Vector4DF(3.0, 0.0, 0.0, 0));
     gvdb.InsertPointsSubcell_FP16(subcell_size, m_numpnts, m_radius, m_origin, scPntLen);
     gvdb.GatherLevelSet_FP16(subcell_size, m_numpnts, m_radius, m_origin, scPntLen, 0, 0);
-    gvdb.UpdateApron(0, 3.0f);
+    gvdb.UpdateApron(0, 3.0f);*/
 
     PERF_POP();
 

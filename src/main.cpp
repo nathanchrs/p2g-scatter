@@ -602,10 +602,12 @@ bool Sample::init() {
     createScreenQuadGL(&gl_screen_tex, m_w, m_h);
 
     // Configure
-    gvdb.Configure(3, 3, 3, 3, 4);
+    gvdb.Configure(3, 3, 3, 3, 5);
     gvdb.SetChannelDefault(32, 32, 1);
-    gvdb.AddChannel(0, T_FLOAT, 1, F_LINEAR);
-    gvdb.AddChannel(1, T_FLOAT, 1, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false);
+    // 3.0 is the default channel value used for level set channels (hardcoded in gatherLevelSet)
+    gvdb.AddChannel(0, T_FLOAT, 1, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), true, Vector4DF(3.0, 0.0, 0.0, 0.0));
+    gvdb.AddChannel(1, T_FLOAT, 1, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(3.0, 0.0, 0.0, 0.0));
+    gvdb.AddChannel(2, T_FLOAT, 1, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), true, Vector4DF(3.0, 0.0, 0.0, 0.0));
 
     // Initialize GUIs
     start_guis(m_w, m_h);
@@ -829,20 +831,23 @@ void Sample::render_update() {
     // Gather points to level set
     PERF_PUSH("Points-to-Voxels");
 
-    // Scatter level set to channel 1, then copy channel 1 to texture channel 0 to be rendered
-    gvdb.FillChannel(1, Vector4DF(3.0, 0.0, 0.0, 0));
-    gvdb.InsertPoints(m_numpnts, m_origin, false);
-    gvdb.ScatterReduceLevelSet(m_numpnts, m_radius, m_origin, true, 1, 3);
-    gvdb.CopyLinearChannelToTextureChannel(0, 1);
-    // TODO: proper handling of scatter writes to apron values
-
-    // Gather to channel 0
-    /*int scPntLen = 0;
+    // Prepare topology
+    int scPntLen = 0;
     int subcell_size = 4;
-    gvdb.FillChannel(0, Vector4DF(3.0, 0.0, 0.0, 0));
     gvdb.InsertPointsSubcell(subcell_size, m_numpnts, m_radius, m_origin, scPntLen);
-    gvdb.GatherLevelSet(subcell_size, m_numpnts, m_radius, m_origin, scPntLen, 0, 0);
-    gvdb.UpdateApron(0, 3.0f);*/
+
+    // Gather to channel 2
+    gvdb.FillChannel(2, 3.0);
+    gvdb.GatherLevelSet(subcell_size, m_numpnts, m_radius, m_origin, scPntLen, 2, 3);
+    gvdb.UpdateApron(2, 3.0f);
+
+    // Scatter level set to channel 1, then copy channel 1 to texture channel 0 to be rendered
+    gvdb.ClearChannel(1);
+    gvdb.ScatterLevelSet(m_numpnts, m_radius, m_origin, 1);
+    gvdb.CopyLinearChannelToTextureChannel(0, 1);
+    gvdb.UpdateApron(0, 3.0f); // Apron update needed because smoothing operation on texture uses apron voxels
+
+    gvdb.CompareChannels(0, 2);
 
     // Gather to channel 0, using 16-bit floating points to save GPU memory
     /*int scPntLen = 0;
@@ -854,12 +859,12 @@ void Sample::render_update() {
 
     PERF_POP();
 
-    if (m_smooth > 0) {
+    /*if (m_smooth > 0) {
         PERF_PUSH("Smooth");
         nvprintf("Smooth: %d, %f %f %f\n", m_smooth, m_smoothp.x, m_smoothp.y, m_smoothp.z);
         gvdb.Compute(FUNC_SMOOTH, 0, m_smooth, m_smoothp, true, 3.0f); // 8x smooth iterations
         PERF_POP();
-    }
+    }*/
 
     if (m_render_optix) {
         PERF_PUSH("Update OptiX");

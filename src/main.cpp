@@ -10,6 +10,7 @@ using namespace nvdb;
 // Sample utils
 #include "main.h"   // window system
 #include "nv_gui.h" // gui system
+#include "cudaProfiler.h"
 #include <GL/glew.h>
 #include <fstream>
 
@@ -264,7 +265,7 @@ Sample::Sample() {
     m_frame = -1;
     m_key = false;
     m_renderscale = 0.0;
-    m_infile = "small.scn";
+    m_infile = "teapot.scn";
     m_io_method = C_IO;
 }
 
@@ -536,7 +537,7 @@ bool Sample::init() {
 
     m_sample = 0;
     m_save_png = true;
-    m_render_optix = false;
+    m_render_optix = true;
     m_smooth = 0;
     m_smoothp.Set(0, 0, 0);
 
@@ -558,8 +559,8 @@ bool Sample::init() {
         optx.InitializeOptix(m_w, m_h);
     }
 
-    gvdb.SetDebug(false);
-    gvdb.SetVerbose(false);
+    gvdb.SetDebug(true); // DEBUG
+    gvdb.SetVerbose(true); // DEBUG
     gvdb.SetProfile(false, true);
     gvdb.SetCudaDevice(m_render_optix ? GVDB_DEV_CURRENT : GVDB_DEV_FIRST);
     gvdb.Initialize();
@@ -602,8 +603,8 @@ bool Sample::init() {
     createScreenQuadGL(&gl_screen_tex, m_w, m_h);
 
     // Configure
-    gvdb.Configure(3, 3, 3, 3, 5);
-    gvdb.SetChannelDefault(32, 32, 1);
+    gvdb.Configure(3, 3, 3, 3, 3); // Brick size fixed at 8x8x8 (last parameter)
+    gvdb.SetChannelDefault(32, 32, 1); // Default atlas dimension to allocate in number of bricks
     // 3.0 is the default channel value used for level set channels (hardcoded in gatherLevelSet)
     gvdb.AddChannel(0, T_FLOAT, 1, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), true, Vector4DF(3.0, 0.0, 0.0, 0.0));
     gvdb.AddChannel(1, T_FLOAT, 1, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(3.0, 0.0, 0.0, 0.0));
@@ -820,10 +821,12 @@ void Sample::render_update() {
     if (!m_pnton)
         return;
 
+    cuProfilerStart();
+
     // Rebuild GVDB Render topology
     PERF_PUSH("Dynamic Topology");
     // gvdb.RequestFullRebuild ( true );
-    gvdb.RebuildTopology(m_numpnts, m_radius * 2.0, m_origin);
+    gvdb.RebuildTopology(m_numpnts, 2.0, m_origin); // Allocate bricks so that all neighboring 3x3x3 voxels of a particle is covered
     gvdb.FinishTopology(false, true); // false. no commit pool	false. no compute bounds
     gvdb.UpdateAtlas();
     PERF_POP();
@@ -837,13 +840,13 @@ void Sample::render_update() {
     gvdb.InsertPointsSubcell(subcell_size, m_numpnts, m_radius, m_origin, scPntLen);
 
     // Gather to channel 2
-    gvdb.FillChannel(2, 3.0);
+    gvdb.ClearChannel(2);
     gvdb.GatherLevelSet(subcell_size, m_numpnts, m_radius, m_origin, scPntLen, 2, 3);
     gvdb.UpdateApron(2, 3.0f);
 
     // Scatter level set to channel 1, then copy channel 1 to texture channel 0 to be rendered
     gvdb.ClearChannel(1);
-    gvdb.ScatterLevelSet(m_numpnts, m_radius, m_origin, 1);
+    gvdb.ScatterReduceLevelSet(m_numpnts, m_radius, m_origin, 1);
     gvdb.CopyLinearChannelToTextureChannel(0, 1);
     gvdb.UpdateApron(0, 3.0f); // Apron update needed because smoothing operation on texture uses apron voxels
 
@@ -859,12 +862,12 @@ void Sample::render_update() {
 
     PERF_POP();
 
-    /*if (m_smooth > 0) {
+    if (m_smooth > 0) {
         PERF_PUSH("Smooth");
         nvprintf("Smooth: %d, %f %f %f\n", m_smooth, m_smoothp.x, m_smoothp.y, m_smoothp.z);
         gvdb.Compute(FUNC_SMOOTH, 0, m_smooth, m_smoothp, true, 3.0f); // 8x smooth iterations
         PERF_POP();
-    }*/
+    }
 
     if (m_render_optix) {
         PERF_PUSH("Update OptiX");
@@ -876,6 +879,8 @@ void Sample::render_update() {
         ReportMemory();
         gvdb.Measure(true);
     }
+
+    cuProfilerStop();
 }
 
 void Sample::render_frame() {

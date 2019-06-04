@@ -14,7 +14,7 @@ model
 render
   width: 800
   height: 600
-  samples: 128
+  samples: 4
   backclr: <.1, .2, .4>
   envmap: sky.png
   outfile: img%04d.png

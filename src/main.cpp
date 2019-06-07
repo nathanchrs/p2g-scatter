@@ -65,10 +65,15 @@ class Sample : public NVPWindow {
     Vector3DF m_origin;
     float m_renderscale;
 
+    DataPtr m_particlePositions;
+    DataPtr m_particleMasses;
+    DataPtr m_particleVelocities;
+    DataPtr m_particleDeformationGradients;
+    DataPtr m_particleAffineStates;
+
     int m_w, m_h;
     int m_numpnts;
     DataPtr m_pnt1;
-    DataPtr m_pnts;
     int m_frame;
     int m_fstep;
     int m_sample;
@@ -265,7 +270,7 @@ Sample::Sample() {
     m_frame = -1;
     m_key = false;
     m_renderscale = 0.0;
-    m_infile = "teapot.scn";
+    m_infile = "small.scn";
     m_io_method = C_IO;
 }
 
@@ -605,10 +610,23 @@ bool Sample::init() {
     // Configure
     gvdb.Configure(3, 3, 3, 3, 3); // Brick size fixed at 8x8x8 (last parameter)
     gvdb.SetChannelDefault(32, 32, 1); // Default atlas dimension to allocate in number of bricks
-    // 3.0 is the default channel value used for level set channels (hardcoded in gatherLevelSet)
+
+    // Level set channel for rendering (texture channel with apron size 1)
+    // Positive value is outside material, negative value is inside. Background initialized to 3.0
     gvdb.AddChannel(0, T_FLOAT, 1, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), true, Vector4DF(3.0, 0.0, 0.0, 0.0));
-    gvdb.AddChannel(1, T_FLOAT, 1, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(3.0, 0.0, 0.0, 0.0));
-    gvdb.AddChannel(2, T_FLOAT, 1, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), true, Vector4DF(3.0, 0.0, 0.0, 0.0));
+
+    // Velocity channels
+    gvdb.AddChannel(1, T_FLOAT, 1, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(0.0, 0.0, 0.0, 0.0));
+    gvdb.AddChannel(2, T_FLOAT, 0, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(0.0, 0.0, 0.0, 0.0));
+    gvdb.AddChannel(3, T_FLOAT, 0, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(0.0, 0.0, 0.0, 0.0));
+
+    // Force channels
+    gvdb.AddChannel(4, T_FLOAT, 0, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(0.0, 0.0, 0.0, 0.0));
+    gvdb.AddChannel(5, T_FLOAT, 0, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(0.0, 0.0, 0.0, 0.0));
+    gvdb.AddChannel(6, T_FLOAT, 0, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(0.0, 0.0, 0.0, 0.0));
+
+    // Mass density channel
+    gvdb.AddChannel(7, T_FLOAT, 0, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(0.0, 0.0, 0.0, 0.0));
 
     // Initialize GUIs
     start_guis(m_w, m_h);
@@ -714,7 +732,7 @@ void Sample::load_points(std::string pntpath, std::string pntfile, int frame) {
         ushort outbuf[3];
         PERF_PUSH("  Buffer alloc");
         gvdb.AllocData(m_pnt1, m_numpnts, sizeof(ushort) * 3, true);
-        gvdb.AllocData(m_pnts, m_numpnts, sizeof(Vector3DF), false);
+        gvdb.AllocData(m_particlePositions, m_numpnts, sizeof(Vector3DF), false);
         PERF_POP();
 
         // Windows IO
@@ -751,7 +769,7 @@ void Sample::load_points(std::string pntpath, std::string pntfile, int frame) {
         ushort outbuf[3];
         PERF_PUSH("  Buffer alloc");
         gvdb.AllocData(m_pnt1, m_numpnts, sizeof(ushort) * 3, true);
-        gvdb.AllocData(m_pnts, m_numpnts, sizeof(Vector3DF), false);
+        gvdb.AllocData(m_particlePositions, m_numpnts, sizeof(Vector3DF), false);
         PERF_POP();
 
         // fseek(fp, 28, SEEK_SET);
@@ -766,14 +784,66 @@ void Sample::load_points(std::string pntpath, std::string pntfile, int frame) {
     PERF_PUSH("  Convert");
     Vector3DF wdelta((wMax.x - wMin.x) / 65535.0f, (wMax.y - wMin.y) / 65535.0f,
                      (wMax.z - wMin.z) / 65535.0f);
-    gvdb.ConvertAndTransform(m_pnt1, 2, m_pnts, 4, m_numpnts, wMin, wdelta, Vector3DF(0, 0, 0),
+    gvdb.ConvertAndTransform(m_pnt1, 2, m_particlePositions, 4, m_numpnts, wMin, wdelta, Vector3DF(0, 0, 0),
                              Vector3DF(m_renderscale, m_renderscale, m_renderscale));
     PERF_POP();
 
+    // Allocate memory for particle data other than position
+    gvdb.AllocData(m_particleMasses, m_numpnts, sizeof(float), true);
+    gvdb.AllocData(m_particleVelocities, m_numpnts, sizeof(float) * 3, true);
+    gvdb.AllocData(m_particleDeformationGradients, m_numpnts, sizeof(float) * 9, true);
+    gvdb.AllocData(m_particleAffineStates, m_numpnts, sizeof(float) * 9, true);
+
+    // Initialize particle data other than position
+    for (int i = 0; i < m_numpnts; i++) {
+        // Mass
+        // TODO: determine initial mass and volume per particle (use cm and gram?)
+        *(((float*) m_particleMasses.cpu) + m_numpnts) = 0.1;
+
+        // Velocity
+        float* velocity = ((float*) m_particleVelocities.cpu) + m_numpnts * 3;
+        velocity[0] = 0.0;
+        velocity[1] = 0.0;
+        velocity[2] = 0.0;
+
+        // Deformation gradient (initialize to identity matrix)
+        float* deformationGradient = ((float*) m_particleDeformationGradients.cpu) + m_numpnts * 9;
+        deformationGradient[0] = 1.0;
+        deformationGradient[1] = 0.0;
+        deformationGradient[2] = 0.0;
+        deformationGradient[3] = 0.0;
+        deformationGradient[4] = 1.0;
+        deformationGradient[5] = 0.0;
+        deformationGradient[6] = 0.0;
+        deformationGradient[7] = 0.0;
+        deformationGradient[8] = 1.0;
+
+        // APIC affine state (initialize to zero matrix)
+        float* affineState = ((float*) m_particleAffineStates.cpu) + m_numpnts * 9;
+        affineState[0] = 0.0;
+        affineState[1] = 0.0;
+        affineState[2] = 0.0;
+        affineState[3] = 0.0;
+        affineState[4] = 0.0;
+        affineState[5] = 0.0;
+        affineState[6] = 0.0;
+        affineState[7] = 0.0;
+        affineState[8] = 0.0;
+    }
+
+    // Commit particle data other than positions to GPU
+    gvdb.CommitData(m_particleMasses);
+    gvdb.CommitData(m_particleVelocities);
+    gvdb.CommitData(m_particleDeformationGradients);
+    gvdb.CommitData(m_particleAffineStates);
+
     // Set points for GVDB
-    DataPtr temp;
-    gvdb.SetPoints(m_pnts, temp, temp);
-    printf("m_numpnts = %d\n", m_numpnts);
+    gvdb.SetPoints(
+        m_particlePositions, m_particleMasses, m_particleVelocities,
+        m_particleDeformationGradients, m_particleAffineStates
+    );
+
+    printf("Particle count: %d\n", m_numpnts);
     nvprintf("  Done.\n");
 }
 
@@ -834,40 +904,31 @@ void Sample::render_update() {
     // Gather points to level set
     PERF_PUSH("Points-to-Voxels");
 
-    // Prepare topology
-    int scPntLen = 0;
-    int subcell_size = 4;
-    gvdb.InsertPointsSubcell(subcell_size, m_numpnts, m_radius, m_origin, scPntLen);
+    // Compute delta time
 
-    // Gather to channel 2
-    gvdb.ClearChannel(2);
-    gvdb.GatherLevelSet(subcell_size, m_numpnts, m_radius, m_origin, scPntLen, 2, 3);
-    gvdb.UpdateApron(2, 3.0f);
-
-    // Scatter level set to channel 1, then copy channel 1 to texture channel 0 to be rendered
+    // P2G
     gvdb.ClearChannel(1);
     gvdb.ScatterReduceLevelSet(m_numpnts, m_radius, m_origin, 1);
-    gvdb.CopyLinearChannelToTextureChannel(0, 1);
-    gvdb.UpdateApron(0, 3.0f); // Apron update needed because smoothing operation on texture uses apron voxels
 
-    gvdb.CompareChannels(0, 2);
+    // Compute forces on grid
 
-    // Gather to channel 0, using 16-bit floating points to save GPU memory
-    /*int scPntLen = 0;
-    int subcell_size = 4;
-    gvdb.FillChannel(0, Vector4DF(3.0, 0.0, 0.0, 0));
-    gvdb.InsertPointsSubcell_FP16(subcell_size, m_numpnts, m_radius, m_origin, scPntLen);
-    gvdb.GatherLevelSet_FP16(subcell_size, m_numpnts, m_radius, m_origin, scPntLen, 0, 0);
-    gvdb.UpdateApron(0, 3.0f);*/
+    // Compute level set for render
+    // gvdb.CopyLinearChannelToTextureChannel(0, 1);
+    // gvdb.UpdateApron(0, 3.0f); // Apron update needed because smoothing operation on texture uses apron voxels
+
+    // G2P
+
+    // Compute particle values
+
 
     PERF_POP();
 
-    if (m_smooth > 0) {
+    /*if (m_smooth > 0) {
         PERF_PUSH("Smooth");
         nvprintf("Smooth: %d, %f %f %f\n", m_smooth, m_smoothp.x, m_smoothp.y, m_smoothp.z);
         gvdb.Compute(FUNC_SMOOTH, 0, m_smooth, m_smoothp, true, 3.0f); // 8x smooth iterations
         PERF_POP();
-    }
+    }*/
 
     if (m_render_optix) {
         PERF_PUSH("Update OptiX");
@@ -875,10 +936,10 @@ void Sample::render_update() {
         PERF_POP();
     }
 
-    if (m_info) {
+    //if (m_info) {
         ReportMemory();
         gvdb.Measure(true);
-    }
+    //}
 
     cuProfilerStop();
 }
@@ -964,7 +1025,7 @@ void Sample::draw_topology() {
 }
 
 void Sample::draw_points() {
-    Vector3DF *fpos = (Vector3DF *)m_pnts.cpu;
+    Vector3DF *fpos = (Vector3DF*) m_particlePositions.cpu;
 
     Vector3DF p1, p2;
     Vector3DF c;

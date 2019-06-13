@@ -70,6 +70,7 @@ class Sample : public NVPWindow {
     DataPtr m_particleVelocities;
     DataPtr m_particleDeformationGradients;
     DataPtr m_particleAffineStates;
+    DataPtr m_particleInitialVolumes;
 
     int m_w, m_h;
     int m_numpnts;
@@ -615,18 +616,18 @@ bool Sample::init() {
     // Positive value is outside material, negative value is inside. Background initialized to 3.0
     gvdb.AddChannel(0, T_FLOAT, 1, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), true, Vector4DF(3.0, 0.0, 0.0, 0.0));
 
-    // Velocity channels
+    // Momentum channels
     gvdb.AddChannel(1, T_FLOAT, 1, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(0.0, 0.0, 0.0, 0.0));
-    gvdb.AddChannel(2, T_FLOAT, 0, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(0.0, 0.0, 0.0, 0.0));
-    gvdb.AddChannel(3, T_FLOAT, 0, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(0.0, 0.0, 0.0, 0.0));
+    gvdb.AddChannel(2, T_FLOAT, 1, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(0.0, 0.0, 0.0, 0.0));
+    gvdb.AddChannel(3, T_FLOAT, 1, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(0.0, 0.0, 0.0, 0.0));
 
     // Force channels
-    gvdb.AddChannel(4, T_FLOAT, 0, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(0.0, 0.0, 0.0, 0.0));
-    gvdb.AddChannel(5, T_FLOAT, 0, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(0.0, 0.0, 0.0, 0.0));
-    gvdb.AddChannel(6, T_FLOAT, 0, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(0.0, 0.0, 0.0, 0.0));
+    gvdb.AddChannel(4, T_FLOAT, 1, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(0.0, 0.0, 0.0, 0.0));
+    gvdb.AddChannel(5, T_FLOAT, 1, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(0.0, 0.0, 0.0, 0.0));
+    gvdb.AddChannel(6, T_FLOAT, 1, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(0.0, 0.0, 0.0, 0.0));
 
     // Mass density channel
-    gvdb.AddChannel(7, T_FLOAT, 0, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(0.0, 0.0, 0.0, 0.0));
+    gvdb.AddChannel(7, T_FLOAT, 1, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(0.0, 0.0, 0.0, 0.0));
 
     // Initialize GUIs
     start_guis(m_w, m_h);
@@ -793,21 +794,25 @@ void Sample::load_points(std::string pntpath, std::string pntfile, int frame) {
     gvdb.AllocData(m_particleVelocities, m_numpnts, sizeof(float) * 3, true);
     gvdb.AllocData(m_particleDeformationGradients, m_numpnts, sizeof(float) * 9, true);
     gvdb.AllocData(m_particleAffineStates, m_numpnts, sizeof(float) * 9, true);
+    gvdb.AllocData(m_particleInitialVolumes, m_numpnts, sizeof(float), true);
 
     // Initialize particle data other than position
     for (int i = 0; i < m_numpnts; i++) {
-        // Mass
+        // Initial particle volume and mass
         // TODO: determine initial mass and volume per particle (use cm and gram?)
-        *(((float*) m_particleMasses.cpu) + m_numpnts) = 0.1;
+        // The correct way is to determine initial volume from particle position distributions,
+        // then calculate mass based on particle initial volume * material density
+        *(((float*) m_particleInitialVolumes.cpu) + i) = 0.125;
+        *(((float*) m_particleMasses.cpu) + i) = 0.125;
 
         // Velocity
-        float* velocity = ((float*) m_particleVelocities.cpu) + m_numpnts * 3;
+        float* velocity = ((float*) m_particleVelocities.cpu) + i * 3;
         velocity[0] = 0.0;
         velocity[1] = 0.0;
         velocity[2] = 0.0;
 
         // Deformation gradient (initialize to identity matrix)
-        float* deformationGradient = ((float*) m_particleDeformationGradients.cpu) + m_numpnts * 9;
+        float* deformationGradient = ((float*) m_particleDeformationGradients.cpu) + i * 9;
         deformationGradient[0] = 1.0;
         deformationGradient[1] = 0.0;
         deformationGradient[2] = 0.0;
@@ -819,7 +824,7 @@ void Sample::load_points(std::string pntpath, std::string pntfile, int frame) {
         deformationGradient[8] = 1.0;
 
         // APIC affine state (initialize to zero matrix)
-        float* affineState = ((float*) m_particleAffineStates.cpu) + m_numpnts * 9;
+        float* affineState = ((float*) m_particleAffineStates.cpu) + i * 9;
         affineState[0] = 0.0;
         affineState[1] = 0.0;
         affineState[2] = 0.0;
@@ -836,11 +841,12 @@ void Sample::load_points(std::string pntpath, std::string pntfile, int frame) {
     gvdb.CommitData(m_particleVelocities);
     gvdb.CommitData(m_particleDeformationGradients);
     gvdb.CommitData(m_particleAffineStates);
+    gvdb.CommitData(m_particleInitialVolumes);
 
     // Set points for GVDB
     gvdb.SetPoints(
         m_particlePositions, m_particleMasses, m_particleVelocities,
-        m_particleDeformationGradients, m_particleAffineStates
+        m_particleDeformationGradients, m_particleAffineStates, m_particleInitialVolumes
     );
 
     printf("Particle count: %d\n", m_numpnts);
@@ -883,7 +889,7 @@ void Sample::ReportMemory() {
 void Sample::clear_gvdb() {
     // Clear
     DataPtr temp;
-    gvdb.SetPoints(temp, temp, temp);
+    gvdb.SetPoints(temp, temp, temp, temp, temp, temp);
     gvdb.CleanAux();
 }
 
@@ -908,17 +914,23 @@ void Sample::render_update() {
 
     // P2G
     gvdb.ClearChannel(1);
-    gvdb.ScatterReduceLevelSet(m_numpnts, m_radius, m_origin, 1);
+    gvdb.ClearChannel(2);
+    gvdb.ClearChannel(3);
+    gvdb.ClearChannel(4);
+    gvdb.ClearChannel(5);
+    gvdb.ClearChannel(6);
+    gvdb.ClearChannel(7);
+    gvdb.P2G_ScatterAPIC(m_numpnts, 7, 1, 4);
 
-    // Compute forces on grid
+    // Add external forces, handle collisions, update grid velocity
 
     // Compute level set for render
-    // gvdb.CopyLinearChannelToTextureChannel(0, 1);
-    // gvdb.UpdateApron(0, 3.0f); // Apron update needed because smoothing operation on texture uses apron voxels
+    gvdb.ConvertLinearMassChannelToTextureLevelSetChannel(0, 7);
+    gvdb.UpdateApron(0, 3.0f); // Apron update needed because smoothing operation on texture uses apron voxels
 
     // G2P
 
-    // Compute particle values
+    // Compute particle values, advect particles
 
 
     PERF_POP();

@@ -70,7 +70,11 @@ class Sample : public NVPWindow {
     DataPtr m_particleVelocities;
     DataPtr m_particleDeformationGradients;
     DataPtr m_particleAffineStates;
-    DataPtr m_particleInitialVolumes;
+    float m_particleInitialVolume;
+
+    float deltaTime;
+    float elapsedTime;
+    int elapsedTimeSteps;
 
     int m_w, m_h;
     int m_numpnts;
@@ -558,6 +562,10 @@ bool Sample::init() {
     m_poffset = Vector3DF(0, 0, 0);
     m_polymat = 0;
 
+    elapsedTime = 0.0;
+    elapsedTimeSteps = 0;
+    deltaTime = 1e-4;
+
     init2D("arial");
 
     // Initialize Optix Scene
@@ -616,7 +624,7 @@ bool Sample::init() {
     // Positive value is outside material, negative value is inside. Background initialized to 3.0
     gvdb.AddChannel(0, T_FLOAT, 1, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), true, Vector4DF(3.0, 0.0, 0.0, 0.0));
 
-    // Momentum channels
+    // Momentum/velocity channels
     gvdb.AddChannel(1, T_FLOAT, 1, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(0.0, 0.0, 0.0, 0.0));
     gvdb.AddChannel(2, T_FLOAT, 1, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(0.0, 0.0, 0.0, 0.0));
     gvdb.AddChannel(3, T_FLOAT, 1, F_LINEAR, F_CLAMP, Vector3DI(0, 0, 0), false, Vector4DF(0.0, 0.0, 0.0, 0.0));
@@ -794,16 +802,14 @@ void Sample::load_points(std::string pntpath, std::string pntfile, int frame) {
     gvdb.AllocData(m_particleVelocities, m_numpnts, sizeof(float) * 3, true);
     gvdb.AllocData(m_particleDeformationGradients, m_numpnts, sizeof(float) * 9, true);
     gvdb.AllocData(m_particleAffineStates, m_numpnts, sizeof(float) * 9, true);
-    gvdb.AllocData(m_particleInitialVolumes, m_numpnts, sizeof(float), true);
 
     // Initialize particle data other than position
+    m_particleInitialVolume = 1e-7; // m^3
     for (int i = 0; i < m_numpnts; i++) {
-        // Initial particle volume and mass
-        // TODO: determine initial mass and volume per particle (use cm and gram?)
+        // Initial particle mass
         // The correct way is to determine initial volume from particle position distributions,
         // then calculate mass based on particle initial volume * material density
-        *(((float*) m_particleInitialVolumes.cpu) + i) = 0.125;
-        *(((float*) m_particleMasses.cpu) + i) = 0.125;
+        *(((float*) m_particleMasses.cpu) + i) = 1e-4; // kg
 
         // Velocity
         float* velocity = ((float*) m_particleVelocities.cpu) + i * 3;
@@ -841,12 +847,11 @@ void Sample::load_points(std::string pntpath, std::string pntfile, int frame) {
     gvdb.CommitData(m_particleVelocities);
     gvdb.CommitData(m_particleDeformationGradients);
     gvdb.CommitData(m_particleAffineStates);
-    gvdb.CommitData(m_particleInitialVolumes);
 
     // Set points for GVDB
     gvdb.SetPoints(
         m_particlePositions, m_particleMasses, m_particleVelocities,
-        m_particleDeformationGradients, m_particleAffineStates, m_particleInitialVolumes
+        m_particleDeformationGradients, m_particleAffineStates
     );
 
     printf("Particle count: %d\n", m_numpnts);
@@ -889,7 +894,7 @@ void Sample::ReportMemory() {
 void Sample::clear_gvdb() {
     // Clear
     DataPtr temp;
-    gvdb.SetPoints(temp, temp, temp, temp, temp, temp);
+    gvdb.SetPoints(temp, temp, temp, temp, temp);
     gvdb.CleanAux();
 }
 
@@ -899,41 +904,61 @@ void Sample::render_update() {
 
     cuProfilerStart();
 
-    // Rebuild GVDB Render topology
-    PERF_PUSH("Dynamic Topology");
-    // gvdb.RequestFullRebuild ( true );
-    gvdb.RebuildTopology(m_numpnts, 2.0, m_origin); // Allocate bricks so that all neighboring 3x3x3 voxels of a particle is covered
-    gvdb.FinishTopology(false, true); // false. no commit pool	false. no compute bounds
-    gvdb.UpdateAtlas();
-    PERF_POP();
+    printf("\n--- MPM time step %d (elapsed time: %f s, dt: %f s) ---\n", elapsedTimeSteps, elapsedTime, deltaTime);
 
-    // Gather points to level set
-    PERF_PUSH("Points-to-Voxels");
+    float frameTimeElapsed = 0.0;
+    while (frameTimeElapsed < 0.01) {
 
-    // Compute delta time
+        // Rebuild GVDB Render topology
+        PERF_PUSH("Dynamic Topology");
+        // gvdb.RequestFullRebuild ( true );
+        gvdb.RebuildTopology(m_numpnts, 2.0, m_origin); // Allocate bricks so that all neighboring 3x3x3 voxels of a particle is covered
+        gvdb.FinishTopology(false, true); // false. no commit pool	false. no compute bounds
+        gvdb.UpdateAtlas();
+        PERF_POP();
 
-    // P2G
-    gvdb.ClearChannel(1);
-    gvdb.ClearChannel(2);
-    gvdb.ClearChannel(3);
-    gvdb.ClearChannel(4);
-    gvdb.ClearChannel(5);
-    gvdb.ClearChannel(6);
-    gvdb.ClearChannel(7);
-    gvdb.P2G_ScatterAPIC(m_numpnts, 7, 1, 4);
+        // Gather points to level set
+        PERF_PUSH("MPM");
+        elapsedTimeSteps++;
+        elapsedTime += deltaTime;
 
-    // Add external forces, handle collisions, update grid velocity
+        // P2G
+        gvdb.ClearChannel(1);
+        gvdb.ClearChannel(2);
+        gvdb.ClearChannel(3);
+        gvdb.ClearChannel(4);
+        gvdb.ClearChannel(5);
+        gvdb.ClearChannel(6);
+        gvdb.ClearChannel(7);
+        gvdb.P2G_ScatterAPIC(m_numpnts, m_particleInitialVolume, 7, 1, 4);
+
+        // Add external forces, handle collisions, update grid velocity
+        gvdb.MPM_GridUpdate(deltaTime, 7, 1, 4);
+
+        // G2P and particle advection
+        gvdb.G2P_GatherAPIC(m_numpnts, deltaTime, 1);
+
+        // TODO: properly compute dt from max velocity - for the time being, use default deltaTime
+        /*
+        Vector3DF maxParticleSpeeds(0.0, 0.0, 0.0);
+        // TODO: update maxParticleSpeeds
+        float nextDeltaTime;
+        if (maxParticleSpeeds.x < 1e-3) maxParticleSpeeds.x = 1e-3;
+        if (maxParticleSpeeds.y < 1e-3) maxParticleSpeeds.y = 1e-3;
+        if (maxParticleSpeeds.z < 1e-3) maxParticleSpeeds.z = 1e-3;
+        nextDeltaTime = 0.3 * (gvdb->vdel[0].x/maxParticleSpeeds.x + gvdb->vdel[0].y/maxParticleSpeeds.y
+        + gvdb->vdel[0].z/maxParticleSpeeds.z);
+        deltaTime = nextDeltaTime;
+        */
+
+        PERF_POP();
+
+        frameTimeElapsed += deltaTime;
+    }
 
     // Compute level set for render
     gvdb.ConvertLinearMassChannelToTextureLevelSetChannel(0, 7);
     gvdb.UpdateApron(0, 3.0f); // Apron update needed because smoothing operation on texture uses apron voxels
-
-    // G2P
-
-    // Compute particle values, advect particles
-
-
-    PERF_POP();
 
     /*if (m_smooth > 0) {
         PERF_PUSH("Smooth");
@@ -948,10 +973,10 @@ void Sample::render_update() {
         PERF_POP();
     }
 
-    //if (m_info) {
+    if (m_info) {
         ReportMemory();
         gvdb.Measure(true);
-    //}
+    }
 
     cuProfilerStop();
 }
@@ -1100,8 +1125,8 @@ void Sample::display() {
 
         m_frame += m_fstep;
 
-        if (m_pnton)
-            load_points(m_pntpath, m_pntfile, m_frame);
+        /* if (m_pnton)
+            load_points(m_pntpath, m_pntfile, m_frame);*/
 
         if (m_polyon) {
             m_pframe += m_pfstep;

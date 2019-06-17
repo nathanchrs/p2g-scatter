@@ -275,7 +275,7 @@ Sample::Sample() {
     m_frame = -1;
     m_key = false;
     m_renderscale = 0.0;
-    m_infile = "small.scn";
+    m_infile = "new.scn";
     m_io_method = C_IO;
 }
 
@@ -553,7 +553,7 @@ bool Sample::init() {
 
     m_pnton = false; // point time series
     m_pntmat = 0;
-    m_fstep = 0;
+    m_fstep = 1;
 
     m_polyon = false; // polygonal time series
     m_pframe = 0;
@@ -565,7 +565,6 @@ bool Sample::init() {
     elapsedTime = 0.0;
     elapsedTimeSteps = 0;
     deltaTime = 1e-4;
-
     init2D("arial");
 
     // Initialize Optix Scene
@@ -676,149 +675,53 @@ void Sample::reshape(int w, int h) {
 }
 
 void Sample::load_points(std::string pntpath, std::string pntfile, int frame) {
-    // Load points
-    char filepath[1024];
-    char srcfile[1024];
-    char pntfmt[1024];
-    sprintf(pntfmt, "%s%s", m_pntpath.c_str(), m_pntfile.c_str());
-    sprintf(srcfile, pntfmt, frame);
-
+    std::string path;
     if (pntpath.empty()) {
-        gvdb.FindFile(srcfile, filepath);
+        char filepath[1024];
+        gvdb.FindFile(pntfile, filepath);
+        path = std::string(filepath);
     } else {
-        sprintf(filepath, "%s", srcfile);
+        path = pntpath + pntfile;
     }
 
-    nvprintf("Load points from %s...", filepath);
+    std::cout << "Reading particles from " << path << std::endl;
 
-    float buf[3];
+    float particleInitialMass;
 
-    // Read # of points
-    m_numpnts = 0;
-    Vector3DF wMin, wMax;
+    std::ifstream fin;
+    fin.open(path.c_str());
 
-    // Read header
-    PERF_PUSH("  Open file");
-#if WINDOWS
-    if (m_io_method == WIN_IO) {
-        HANDLE fph = CreateFile(filepath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
-                                FILE_ATTRIBUTE_NORMAL, // | FILE_FLAG_NO_BUFFERING,
-                                NULL);
-        DWORD bread;
-        ReadFile(fph, &m_numpnts, sizeof(int), &bread, NULL);
-        ReadFile(fph, &wMin.x, sizeof(float), &bread, NULL);
-        ReadFile(fph, &wMin.y, sizeof(float), &bread, NULL);
-        ReadFile(fph, &wMin.z, sizeof(float), &bread, NULL);
-        ReadFile(fph, &wMax.x, sizeof(float), &bread, NULL);
-        ReadFile(fph, &wMax.y, sizeof(float), &bread, NULL);
-        ReadFile(fph, &wMax.z, sizeof(float), &bread, NULL);
-        CloseHandle(fph);
-    } else
-#endif
-        if (m_io_method == C_IO) {
-        // Standard read for header info whne using C_IO
-        FILE *fph = fopen(filepath, "rb");
-        if (fph == 0) {
-            printf("Cannot open file: %s\n", filepath);
-            exit(-1);
-        }
-        fread(&m_numpnts, sizeof(int), 1, fph); // 7*4 = 28 byte header
-        fread(&wMin.x, sizeof(float), 1, fph);
-        fread(&wMin.y, sizeof(float), 1, fph);
-        fread(&wMin.z, sizeof(float), 1, fph);
-        fread(&wMax.x, sizeof(float), 1, fph);
-        fread(&wMax.y, sizeof(float), 1, fph);
-        fread(&wMax.z, sizeof(float), 1, fph);
-        fclose(fph);
-    }
-    PERF_POP();
+    fin >> m_numpnts; // Number of particles
+    fin >> m_particleInitialVolume; // Initial volume of one particle, (m^3)
+    fin >> particleInitialMass; // Mass of one particle (kg)
 
-// Read data from disk to CPU
-#if WINDOWS
-    if (m_io_method == WIN_IO) {
-
-        // Allocate memory for points
-        ushort outbuf[3];
-        PERF_PUSH("  Buffer alloc");
-        gvdb.AllocData(m_pnt1, m_numpnts, sizeof(ushort) * 3, true);
-        gvdb.AllocData(m_particlePositions, m_numpnts, sizeof(Vector3DF), false);
-        PERF_POP();
-
-        // Windows IO
-        PERF_PUSH("Read");
-        HANDLE fp = CreateFile(filepath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
-                               FILE_ATTRIBUTE_NORMAL, // | FILE_FLAG_NO_BUFFERING,
-                               NULL);
-        SetFilePointer(fp, 28, 0, FILE_BEGIN);
-        DWORD bread;
-        ReadFile(fp, m_pnt1.cpu, 3 * sizeof(ushort) * m_numpnts, &bread, NULL);
-        PERF_POP();
-        PERF_PUSH("Commit");
-        gvdb.CommitData(m_pnt1); // Commit to GPU
-        PERF_POP();
-    } else
-#endif
-        if (m_io_method == C_IO) {
-        // C-style IO
-        PERF_PUSH("Read");
-        FILE *fph = fopen(filepath, "rb");
-        if (fph == 0) {
-            printf("Cannot open file: %s\n", filepath);
-            exit(-1);
-        }
-        fread(&m_numpnts, sizeof(int), 1, fph); // 7*4 = 28 byte header
-        fread(&wMin.x, sizeof(float), 1, fph);
-        fread(&wMin.y, sizeof(float), 1, fph);
-        fread(&wMin.z, sizeof(float), 1, fph);
-        fread(&wMax.x, sizeof(float), 1, fph);
-        fread(&wMax.y, sizeof(float), 1, fph);
-        fread(&wMax.z, sizeof(float), 1, fph);
-
-        // Allocate memory for points
-        ushort outbuf[3];
-        PERF_PUSH("  Buffer alloc");
-        gvdb.AllocData(m_pnt1, m_numpnts, sizeof(ushort) * 3, true);
-        gvdb.AllocData(m_particlePositions, m_numpnts, sizeof(Vector3DF), false);
-        PERF_POP();
-
-        // fseek(fp, 28, SEEK_SET);
-        fread(m_pnt1.cpu, 3 * sizeof(ushort), m_numpnts, fph);
-        PERF_POP();
-        PERF_PUSH("Commit");
-        gvdb.CommitData(m_pnt1); // Commit to GPU
-        PERF_POP();
-    }
-
-    // Convert format and transform
-    PERF_PUSH("  Convert");
-    Vector3DF wdelta((wMax.x - wMin.x) / 65535.0f, (wMax.y - wMin.y) / 65535.0f,
-                     (wMax.z - wMin.z) / 65535.0f);
-    gvdb.ConvertAndTransform(m_pnt1, 2, m_particlePositions, 4, m_numpnts, wMin, wdelta, Vector3DF(0, 0, 0),
-                             Vector3DF(m_renderscale, m_renderscale, m_renderscale));
-    PERF_POP();
-
-    // Allocate memory for particle data other than position
+    gvdb.AllocData(m_particlePositions, m_numpnts, sizeof(Vector3DF), true);
     gvdb.AllocData(m_particleMasses, m_numpnts, sizeof(float), true);
     gvdb.AllocData(m_particleVelocities, m_numpnts, sizeof(float) * 3, true);
     gvdb.AllocData(m_particleDeformationGradients, m_numpnts, sizeof(float) * 9, true);
     gvdb.AllocData(m_particleAffineStates, m_numpnts, sizeof(float) * 9, true);
 
-    // Initialize particle data other than position
-    m_particleInitialVolume = 1e-7; // m^3
+    // Particle positions (cm)
+    Vector3DF *particlesInput = (Vector3DF*) m_particlePositions.cpu;
+    for (int i = 0; i < m_numpnts; i++) {
+        fin >> particlesInput[i].x >> particlesInput[i].y >> particlesInput[i].z;
+    }
+
+    fin.close();
+
+    // Initialize particle data
     for (int i = 0; i < m_numpnts; i++) {
         // Initial particle mass
-        // The correct way is to determine initial volume from particle position distributions,
-        // then calculate mass based on particle initial volume * material density
-        *(((float*) m_particleMasses.cpu) + i) = 1e-4; // kg
+        *(((float*) m_particleMasses.cpu) + i) = particleInitialMass;
 
         // Velocity
-        float* velocity = ((float*) m_particleVelocities.cpu) + i * 3;
+        float *velocity = ((float *)m_particleVelocities.cpu) + i * 3;
         velocity[0] = 0.0;
         velocity[1] = 0.0;
         velocity[2] = 0.0;
 
         // Deformation gradient (initialize to identity matrix)
-        float* deformationGradient = ((float*) m_particleDeformationGradients.cpu) + i * 9;
+        float *deformationGradient = ((float *)m_particleDeformationGradients.cpu) + i * 9;
         deformationGradient[0] = 1.0;
         deformationGradient[1] = 0.0;
         deformationGradient[2] = 0.0;
@@ -830,7 +733,7 @@ void Sample::load_points(std::string pntpath, std::string pntfile, int frame) {
         deformationGradient[8] = 1.0;
 
         // APIC affine state (initialize to zero matrix)
-        float* affineState = ((float*) m_particleAffineStates.cpu) + i * 9;
+        float *affineState = ((float *)m_particleAffineStates.cpu) + i * 9;
         affineState[0] = 0.0;
         affineState[1] = 0.0;
         affineState[2] = 0.0;
@@ -842,20 +745,18 @@ void Sample::load_points(std::string pntpath, std::string pntfile, int frame) {
         affineState[8] = 0.0;
     }
 
-    // Commit particle data other than positions to GPU
+    // Commit particle data to GPU
+    gvdb.CommitData(m_particlePositions);
     gvdb.CommitData(m_particleMasses);
     gvdb.CommitData(m_particleVelocities);
     gvdb.CommitData(m_particleDeformationGradients);
     gvdb.CommitData(m_particleAffineStates);
 
     // Set points for GVDB
-    gvdb.SetPoints(
-        m_particlePositions, m_particleMasses, m_particleVelocities,
-        m_particleDeformationGradients, m_particleAffineStates
-    );
+    gvdb.SetPoints(m_particlePositions, m_particleMasses, m_particleVelocities,
+                   m_particleDeformationGradients, m_particleAffineStates);
 
-    printf("Particle count: %d\n", m_numpnts);
-    nvprintf("  Done.\n");
+    printf("Read %d particles.\n", m_numpnts);
 }
 
 void Sample::load_polys(std::string polypath, std::string polyfile, int frame, float pscale,

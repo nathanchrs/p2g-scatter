@@ -72,6 +72,7 @@ class Sample : public NVPWindow {
     DataPtr m_particleAffineStates;
     float m_particleInitialVolume;
 
+    float simulationFPS;
     float deltaTime;
     float elapsedTime;
     int elapsedTimeSteps;
@@ -562,6 +563,7 @@ bool Sample::init() {
     m_poffset = Vector3DF(0, 0, 0);
     m_polymat = 0;
 
+    simulationFPS = 60.0; // Simulation output FPS configuration
     elapsedTime = 0.0;
     elapsedTimeSteps = 0;
     deltaTime = 1e-4;
@@ -808,7 +810,8 @@ void Sample::render_update() {
     printf("\n--- MPM time step %d (elapsed time: %f s, dt: %f s) ---\n", elapsedTimeSteps, elapsedTime, deltaTime);
 
     float frameTimeElapsed = 0.0;
-    while (frameTimeElapsed < 0.01) {
+    float frameTimeTarget = 1.0 / simulationFPS;
+    while (frameTimeElapsed < frameTimeTarget) {
 
         // Rebuild GVDB Render topology
         PERF_PUSH("Dynamic Topology");
@@ -842,7 +845,6 @@ void Sample::render_update() {
         // Calculate delta time based on maximum particle speeds
         gvdb.GetMinMaxVel(m_numpnts);
         Vector3DF cellDimension = Vector3DF(gvdb.getRange(0)) * gvdb.mVoxsize / Vector3DF(gvdb.getRes3DI(0));
-
         Vector3DF maxParticleSpeeds(
             gvdb.mVelMax.x > -gvdb.mVelMin.x ? gvdb.mVelMax.x : -gvdb.mVelMin.x,
             gvdb.mVelMax.y > -gvdb.mVelMin.y ? gvdb.mVelMax.y : -gvdb.mVelMin.y,
@@ -855,11 +857,21 @@ void Sample::render_update() {
         if (maxParticleSpeed < 1e-6) maxParticleSpeed = 1e-6;
         float calculatedDeltaTime = 0.01 * (cellDimension.x / maxParticleSpeed);
 
+        /*
+        // DEBUG
         printf("Max speeds: %f %f %f\n", maxParticleSpeeds.x, maxParticleSpeeds.y, maxParticleSpeeds.z);
         printf("Calculated delta time: %f\n", calculatedDeltaTime);
+        */
 
-        if (calculatedDeltaTime > 1e-4) calculatedDeltaTime = 1e-4;
-        deltaTime = calculatedDeltaTime;
+        // Update delta time based on calculation delta time and remaining time to next frame
+        if (calculatedDeltaTime > 1e-4) calculatedDeltaTime = 1e-4; // Limit delta time maximum
+        if (frameTimeElapsed + calculatedDeltaTime > frameTimeTarget) {
+            deltaTime = frameTimeTarget - frameTimeElapsed;
+        } else if (frameTimeElapsed + 1.8*calculatedDeltaTime > frameTimeTarget) {
+            deltaTime = (frameTimeTarget - frameTimeElapsed) / 2.0;
+        } else {
+            deltaTime = calculatedDeltaTime;
+        }
 
         PERF_POP();
 

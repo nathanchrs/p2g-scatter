@@ -701,7 +701,7 @@ void Sample::load_points(std::string pntpath, std::string pntfile, int frame) {
     gvdb.AllocData(m_particleDeformationGradients, m_numpnts, sizeof(float) * 9, true);
     gvdb.AllocData(m_particleAffineStates, m_numpnts, sizeof(float) * 9, true);
 
-    // Particle positions (cm)
+    // Particle positions in grid units (cm)
     Vector3DF *particlesInput = (Vector3DF*) m_particlePositions.cpu;
     for (int i = 0; i < m_numpnts; i++) {
         fin >> particlesInput[i].x >> particlesInput[i].y >> particlesInput[i].z;
@@ -831,7 +831,7 @@ void Sample::render_update() {
         gvdb.ClearChannel(5);
         gvdb.ClearChannel(6);
         gvdb.ClearChannel(7);
-        gvdb.P2G_ScatterAPIC(m_numpnts, m_particleInitialVolume, 7, 1, 4);
+        gvdb.P2G_ScatterReduceAPIC(m_numpnts, m_particleInitialVolume, 7, 1, 4);
 
         // Add external forces, handle collisions, update grid velocity
         gvdb.MPM_GridUpdate(deltaTime, 7, 1, 4);
@@ -839,18 +839,27 @@ void Sample::render_update() {
         // G2P and particle advection
         gvdb.G2P_GatherAPIC(m_numpnts, deltaTime, 1);
 
-        // TODO: properly compute dt from max velocity - for the time being, use default deltaTime
-        /*
-        Vector3DF maxParticleSpeeds(0.0, 0.0, 0.0);
-        // TODO: update maxParticleSpeeds
-        float nextDeltaTime;
-        if (maxParticleSpeeds.x < 1e-3) maxParticleSpeeds.x = 1e-3;
-        if (maxParticleSpeeds.y < 1e-3) maxParticleSpeeds.y = 1e-3;
-        if (maxParticleSpeeds.z < 1e-3) maxParticleSpeeds.z = 1e-3;
-        nextDeltaTime = 0.3 * (gvdb->vdel[0].x/maxParticleSpeeds.x + gvdb->vdel[0].y/maxParticleSpeeds.y
-        + gvdb->vdel[0].z/maxParticleSpeeds.z);
-        deltaTime = nextDeltaTime;
-        */
+        // Calculate delta time based on maximum particle speeds
+        gvdb.GetMinMaxVel(m_numpnts);
+        Vector3DF cellDimension = Vector3DF(gvdb.getRange(0)) * gvdb.mVoxsize / Vector3DF(gvdb.getRes3DI(0));
+
+        Vector3DF maxParticleSpeeds(
+            gvdb.mVelMax.x > -gvdb.mVelMin.x ? gvdb.mVelMax.x : -gvdb.mVelMin.x,
+            gvdb.mVelMax.y > -gvdb.mVelMin.y ? gvdb.mVelMax.y : -gvdb.mVelMin.y,
+            gvdb.mVelMax.z > -gvdb.mVelMin.z ? gvdb.mVelMax.z : -gvdb.mVelMin.z
+        );
+        float maxParticleSpeed = maxParticleSpeeds.x > maxParticleSpeeds.y
+            ? (maxParticleSpeeds.x > maxParticleSpeeds.z ? maxParticleSpeeds.x : maxParticleSpeeds.z)
+            : (maxParticleSpeeds.y > maxParticleSpeeds.z ? maxParticleSpeeds.y : maxParticleSpeeds.z);
+        maxParticleSpeed *= 100.0; // Convert m/s to cm/s (grid units use cm)
+        if (maxParticleSpeed < 1e-6) maxParticleSpeed = 1e-6;
+        float calculatedDeltaTime = 0.01 * (cellDimension.x / maxParticleSpeed);
+
+        printf("Max speeds: %f %f %f\n", maxParticleSpeeds.x, maxParticleSpeeds.y, maxParticleSpeeds.z);
+        printf("Calculated delta time: %f\n", calculatedDeltaTime);
+
+        if (calculatedDeltaTime > 1e-4) calculatedDeltaTime = 1e-4;
+        deltaTime = calculatedDeltaTime;
 
         PERF_POP();
 

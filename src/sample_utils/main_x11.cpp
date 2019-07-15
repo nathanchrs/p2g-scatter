@@ -535,6 +535,10 @@ int NVPWindow::run(const std::string &title, const std::string &shortname, int a
     const char *dumpatexit = NULL;
 
     for (int i = 0; i < argc; i++) {
+        if (argv[i][0] == '-') {
+			on_arg(argv[i], argv[i + 1]);
+			i++;
+		}
         if (strcmp(argv[i], "-winsize") == 0 && i + 2 < argc) {
             width = atoi(argv[i + 1]);
             height = atoi(argv[i + 2]);
@@ -543,10 +547,6 @@ int NVPWindow::run(const std::string &title, const std::string &shortname, int a
         if (strcmp(argv[i], "-vsync") == 0 && i + 1 < argc) {
             vsyncstate = atoi(argv[i + 1]) ? true : false;
             i += 1;
-        }
-        if (strcmp(argv[i], "-frames") == 0 && i + 1 < argc) {
-            frameLimit = atoi(argv[i + 1]);
-            i++;
         }
         if (strcmp(argv[i], "-timerprints") == 0 && i + 1 < argc) {
             timerLimit = atoi(argv[i + 1]);

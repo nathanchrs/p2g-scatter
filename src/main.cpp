@@ -1,7 +1,10 @@
-
-
 #define C_IO 0 // settings for m_io_method
 #define WIN_IO 1
+
+// P2G transfer algorithms
+#define SCATTER_REDUCE 0
+#define SCATTER 1
+#define GATHER 2
 
 // GVDB library
 #include "gvdb.h"
@@ -116,9 +119,13 @@ class Sample : public NVPWindow {
     std::vector<MaterialParams> mat_list;
     std::vector<PolyModel> model_list;
 
-    bool m_key;
-    bool m_info;
+    int m_iteration;
+    int m_p2g_algorithm;
+    bool m_p2g_only;
+    int m_iteration_limit;
+    int m_frame_limit;
 
+    bool m_info;
     int m_io_method;
 };
 
@@ -274,10 +281,15 @@ void Sample::RebuildOptixGraph(int shading) {
 
 Sample::Sample() {
     m_frame = -1;
-    m_key = false;
     m_renderscale = 0.0;
     m_infile = "new.scn";
     m_io_method = C_IO;
+
+    m_iteration = 0;
+    m_p2g_algorithm = SCATTER_REDUCE;
+    m_p2g_only = false; // Do full MPM instead of only benchmark P2G levelset
+    m_iteration_limit = 0; // Unlimited
+    m_frame_limit = 0; // Unlimited
 }
 
 void Sample::parse_value(int mode, std::string tag, std::string val) {
@@ -505,29 +517,41 @@ void Sample::parse_scene(std::string fname) {
 void Sample::on_arg(std::string arg, std::string val) {
     if (arg.compare("-in") == 0) {
         m_infile = val;
-        nvprintf("input: %s\n", m_infile.c_str());
+        nvprintf("Input scene file: %s\n", m_infile.c_str());
     }
-
-    if (arg.compare("-frame") == 0) {
-        m_frame = strToNum(val);
-        nvprintf("frame: %d\n", m_frame);
+    else if (arg.compare("-p2g-algorithm") == 0) {
+        if (val.compare("scatter") == 0) {
+            m_p2g_algorithm = SCATTER;
+            nvprintf("P2G algorithm: scatter\n");
+        } else if (val.compare("gather") == 0) {
+            m_p2g_algorithm = GATHER;
+            nvprintf("P2G algorithm: gather\n");
+        } else {
+            m_p2g_algorithm = SCATTER_REDUCE;
+            nvprintf("P2G algorithm: scatter_reduce\n");
+        }
     }
-
-    if (arg.compare("-key") == 0)
-        m_key = true;
-
-    if (arg.compare("-info") == 0) {
-        nvprintf("print gvdb info\n");
-        m_info = true;
+    else if (arg.compare("-iteration-limit") == 0) {
+        m_iteration_limit = strToNum(val);
+        nvprintf("Iteration limit: %d\n", m_iteration_limit);
     }
-
-    if (arg.compare("-scale") == 0) {
-        m_renderscale = strToNum(val);
-        nvprintf("render scale: %f\n", m_renderscale);
+    else if (arg.compare("-frame-limit") == 0) {
+        m_frame_limit = strToNum(val);
+        nvprintf("Frame limit: %d\n", m_frame_limit);
     }
-    if (arg.compare("-io") == 0) {
-        m_io_method = strToNum(val);
-        nvprintf("io method: %d\n", m_io_method);
+    else if (arg.compare("-scale") == 0) {
+        m_renderscale = 1.0 / strToNum(val);
+        nvprintf("Render scale: %f\n", m_renderscale);
+    }
+    else if (arg.compare("-flag") == 0) {
+        if (val.compare("info") == 0) {
+            m_info = true;
+            nvprintf("Using flag: info\n");
+        }
+        else if (val.compare("p2g-only") == 0) {
+            m_p2g_only = true;
+            nvprintf("Using flag: p2g-only\n"); // TODO: implement
+        }
     }
 }
 
@@ -565,7 +589,6 @@ bool Sample::init() {
 
     simulationFPS = 60.0; // Simulation output FPS configuration
     elapsedTime = 0.0;
-    elapsedTimeSteps = 0;
     deltaTime = 1e-4;
     init2D("arial");
 
@@ -802,92 +825,140 @@ void Sample::clear_gvdb() {
 }
 
 void Sample::render_update() {
+    if (m_frame_limit && (m_frame >= m_frame_limit)) {
+        printf("\nReached frame limit, stopping...\n");
+        m_active = false;
+        return;
+    }
+
     if (!m_pnton)
         return;
 
     cuProfilerStart();
 
-    printf("\n--- MPM time step %d (elapsed time: %f s, dt: %f s) ---\n", elapsedTimeSteps, elapsedTime, deltaTime);
+    printf("\n[Frame %d] \n", m_frame);
 
-    float frameTimeElapsed = 0.0;
-    float frameTimeTarget = 1.0 / simulationFPS;
-    while (frameTimeElapsed < frameTimeTarget) {
+    if (m_p2g_only) {
+        printf("  P2G level set... ");
 
         // Rebuild GVDB Render topology
         PERF_PUSH("Dynamic Topology");
-        // gvdb.RequestFullRebuild ( true );
         gvdb.RebuildTopology(m_numpnts, 2.0, m_origin); // Allocate bricks so that all neighboring 3x3x3 voxels of a particle is covered
         gvdb.FinishTopology(false, true); // false. no commit pool	false. no compute bounds
         gvdb.UpdateAtlas();
         PERF_POP();
 
-        // Gather points to level set
-        PERF_PUSH("MPM");
-        elapsedTimeSteps++;
-        elapsedTime += deltaTime;
+        int levelSetChannel = 0;
+        float radius = 1.0;
+        Vector3DF offset(0.0, 0.0, 0.0);
 
-        // P2G
-        gvdb.ClearChannel(1);
-        gvdb.ClearChannel(2);
-        gvdb.ClearChannel(3);
-        gvdb.ClearChannel(4);
-        gvdb.ClearChannel(5);
-        gvdb.ClearChannel(6);
-        gvdb.ClearChannel(7);
-        gvdb.P2G_ScatterReduceAPIC(m_numpnts, m_particleInitialVolume, 7, 1, 4);
-
-        // Add external forces, handle collisions, update grid velocity
-        gvdb.MPM_GridUpdate(deltaTime, 7, 1, 4);
-
-        // G2P and particle advection
-        gvdb.G2P_GatherAPIC(m_numpnts, deltaTime, 1);
-
-        // Calculate delta time based on maximum particle speeds
-        gvdb.GetMinMaxVel(m_numpnts);
-        Vector3DF cellDimension = Vector3DF(gvdb.getRange(0)) * gvdb.mVoxsize / Vector3DF(gvdb.getRes3DI(0));
-        Vector3DF maxParticleSpeeds(
-            gvdb.mVelMax.x > -gvdb.mVelMin.x ? gvdb.mVelMax.x : -gvdb.mVelMin.x,
-            gvdb.mVelMax.y > -gvdb.mVelMin.y ? gvdb.mVelMax.y : -gvdb.mVelMin.y,
-            gvdb.mVelMax.z > -gvdb.mVelMin.z ? gvdb.mVelMax.z : -gvdb.mVelMin.z
-        );
-        float maxParticleSpeed = maxParticleSpeeds.x > maxParticleSpeeds.y
-            ? (maxParticleSpeeds.x > maxParticleSpeeds.z ? maxParticleSpeeds.x : maxParticleSpeeds.z)
-            : (maxParticleSpeeds.y > maxParticleSpeeds.z ? maxParticleSpeeds.y : maxParticleSpeeds.z);
-        maxParticleSpeed *= 100.0; // Convert m/s to cm/s (grid units use cm)
-        if (maxParticleSpeed < 1e-6) maxParticleSpeed = 1e-6;
-        float calculatedDeltaTime = 0.01 * (cellDimension.x / maxParticleSpeed);
-
-        /*
-        // DEBUG
-        printf("Max speeds: %f %f %f\n", maxParticleSpeeds.x, maxParticleSpeeds.y, maxParticleSpeeds.z);
-        printf("Calculated delta time: %f\n", calculatedDeltaTime);
-        */
-
-        // Update delta time based on calculation delta time and remaining time to next frame
-        if (calculatedDeltaTime > 1e-4) calculatedDeltaTime = 1e-4; // Limit delta time maximum
-        if (frameTimeElapsed + calculatedDeltaTime > frameTimeTarget) {
-            deltaTime = frameTimeTarget - frameTimeElapsed;
-        } else if (frameTimeElapsed + 1.8*calculatedDeltaTime > frameTimeTarget) {
-            deltaTime = (frameTimeTarget - frameTimeElapsed) / 2.0;
+        if (m_p2g_algorithm == SCATTER) {
+            gvdb.ClearChannel(1);
+            gvdb.ScatterLevelSet(m_numpnts, radius, offset, 1);
+            gvdb.CopyLinearChannelToTextureChannel(levelSetChannel, 1);
+        } else if (m_p2g_algorithm == GATHER) {
+            int scPntLen = 0;
+            int subcellSize = 4;
+            gvdb.InsertPointsSubcell(subcellSize, m_numpnts, m_radius, m_origin, scPntLen);
+            gvdb.GatherLevelSet(subcellSize, m_numpnts, radius, offset, scPntLen, levelSetChannel, -1, false);
         } else {
-            deltaTime = calculatedDeltaTime;
+            gvdb.ClearChannel(1);
+            gvdb.ScatterReduceLevelSet(m_numpnts, radius, offset, 1);
+            gvdb.CopyLinearChannelToTextureChannel(levelSetChannel, 1);
         }
 
-        PERF_POP();
+        gvdb.UpdateApron(levelSetChannel, 3.0f);
 
-        frameTimeElapsed += deltaTime;
+        m_iteration++;
+        printf("OK\n");
+    } else {
+        printf("  MPM... ");
+        float frameTimeElapsed = 0.0;
+        float frameTimeTarget = 1.0 / simulationFPS;
+        while (frameTimeElapsed < frameTimeTarget && m_active) {
+            if (m_iteration_limit && (m_iteration >= m_iteration_limit)) {
+                printf("\nReached iteration limit, stopping...\n");
+                m_active = false;
+                break;
+            }
+
+            // Rebuild GVDB Render topology
+            PERF_PUSH("Dynamic Topology");
+            gvdb.RebuildTopology(m_numpnts, 2.0, m_origin); // Allocate bricks so that all neighboring 3x3x3 voxels of a particle is covered
+            gvdb.FinishTopology(false, true); // false. no commit pool	false. no compute bounds
+            gvdb.UpdateAtlas();
+            PERF_POP();
+
+            // Gather points to level set
+            PERF_PUSH("MPM");
+
+            // P2G
+            gvdb.ClearChannel(1);
+            gvdb.ClearChannel(2);
+            gvdb.ClearChannel(3);
+            gvdb.ClearChannel(4);
+            gvdb.ClearChannel(5);
+            gvdb.ClearChannel(6);
+            gvdb.ClearChannel(7);
+            if (m_p2g_algorithm == SCATTER) {
+                gvdb.P2G_ScatterAPIC(m_numpnts, m_particleInitialVolume, 7, 1, 4);
+            } else if (m_p2g_algorithm == GATHER) {
+                gvdb.P2G_GatherAPIC(m_numpnts, m_particleInitialVolume, 7, 1, 4);
+            } else {
+                gvdb.P2G_ScatterReduceAPIC(m_numpnts, m_particleInitialVolume, 7, 1, 4);
+            }
+
+            // Add external forces, handle collisions, update grid velocity
+            gvdb.MPM_GridUpdate(deltaTime, 7, 1, 4);
+
+            // G2P and particle advection
+            gvdb.G2P_GatherAPIC(m_numpnts, deltaTime, 1);
+
+            // Calculate delta time based on maximum particle speeds
+            gvdb.GetMinMaxVel(m_numpnts);
+            Vector3DF cellDimension = Vector3DF(gvdb.getRange(0)) * gvdb.mVoxsize / Vector3DF(gvdb.getRes3DI(0));
+            Vector3DF maxParticleSpeeds(
+                gvdb.mVelMax.x > -gvdb.mVelMin.x ? gvdb.mVelMax.x : -gvdb.mVelMin.x,
+                gvdb.mVelMax.y > -gvdb.mVelMin.y ? gvdb.mVelMax.y : -gvdb.mVelMin.y,
+                gvdb.mVelMax.z > -gvdb.mVelMin.z ? gvdb.mVelMax.z : -gvdb.mVelMin.z
+            );
+            float maxParticleSpeed = maxParticleSpeeds.x > maxParticleSpeeds.y
+                ? (maxParticleSpeeds.x > maxParticleSpeeds.z ? maxParticleSpeeds.x : maxParticleSpeeds.z)
+                : (maxParticleSpeeds.y > maxParticleSpeeds.z ? maxParticleSpeeds.y : maxParticleSpeeds.z);
+            maxParticleSpeed *= 100.0; // Convert m/s to cm/s (grid units use cm)
+            if (maxParticleSpeed < 1e-6) maxParticleSpeed = 1e-6;
+            float calculatedDeltaTime = 0.01 * (cellDimension.x / maxParticleSpeed);
+
+            /*
+            // DEBUG
+            printf("Max speeds: %f %f %f\n", maxParticleSpeeds.x, maxParticleSpeeds.y, maxParticleSpeeds.z);
+            printf("Calculated delta time: %f\n", calculatedDeltaTime);
+            */
+
+            // Update delta time based on calculation delta time and remaining time to next frame
+            if (calculatedDeltaTime > 1e-4) calculatedDeltaTime = 1e-4; // Limit delta time maximum
+            if (frameTimeElapsed + calculatedDeltaTime > frameTimeTarget) {
+                deltaTime = frameTimeTarget - frameTimeElapsed;
+            } else if (frameTimeElapsed + 1.8*calculatedDeltaTime > frameTimeTarget) {
+                deltaTime = (frameTimeTarget - frameTimeElapsed) / 2.0;
+            } else {
+                deltaTime = calculatedDeltaTime;
+            }
+
+            PERF_POP();
+
+            elapsedTime += deltaTime;
+            frameTimeElapsed += deltaTime;
+            m_iteration++;
+        }
+        printf("OK (dt: %f s, total simulated time: %f s, %d MPM iterations total)\n", deltaTime, elapsedTime, m_iteration);
+
+        // Compute level set for render
+        printf("  Computing level set... ");
+        gvdb.ConvertLinearMassChannelToTextureLevelSetChannel(0, 7);
+        gvdb.UpdateApron(0, 3.0f);
+        printf("OK\n");
     }
-
-    // Compute level set for render
-    gvdb.ConvertLinearMassChannelToTextureLevelSetChannel(0, 7);
-    gvdb.UpdateApron(0, 3.0f); // Apron update needed because smoothing operation on texture uses apron voxels
-
-    /*if (m_smooth > 0) {
-        PERF_PUSH("Smooth");
-        nvprintf("Smooth: %d, %f %f %f\n", m_smooth, m_smoothp.x, m_smoothp.y, m_smoothp.z);
-        gvdb.Compute(FUNC_SMOOTH, 0, m_smooth, m_smoothp, true, 3.0f); // 8x smooth iterations
-        PERF_POP();
-    }*/
 
     if (m_render_optix) {
         PERF_PUSH("Update OptiX");
@@ -895,12 +966,14 @@ void Sample::render_update() {
         PERF_POP();
     }
 
+    cuProfilerStop();
+
+    // Print detailed info when rendering every frame
     if (m_info) {
+        printf("  Info:\n");
         ReportMemory();
         gvdb.Measure(true);
     }
-
-    cuProfilerStop();
 }
 
 void Sample::render_frame() {
@@ -1009,16 +1082,6 @@ void Sample::display() {
     if (m_render_optix)
         optx.SetSample(m_frame, m_sample);
 
-    if (m_key && m_frame >= 1100 && m_frame <= 1340) {
-        float u = float(m_frame - 1100) / (1340 - 1100);
-        Vector3DF a0, t0, d0;
-        a0 = interp(Vector3DF(0, 35, 0), Vector3DF(0, 24.6, 0), u);
-        t0 = interp(Vector3DF(240, 0, 0), Vector3DF(362, -201, 20), u);
-        d0 = interp(Vector3DF(1600, 0, 0), Vector3DF(2132, 0, 0), u);
-        Camera3D *cam = gvdb.getScene()->getCamera();
-        cam->setOrbit(a0, t0 * m_renderscale, d0.x * m_renderscale, cam->getDolly());
-    }
-
     clearScreenGL();
 
     // Render frame
@@ -1027,12 +1090,13 @@ void Sample::display() {
     if (m_sample % 8 == 0 && m_sample > 0) {
         int pct = (m_sample * 100) / m_max_samples;
         nvprintf("%d%%%% ", pct);
+    } else if (m_sample == 0) {
+        nvprintf("  Rendering... (samples: %d) ", m_max_samples);
     }
 
     if (++m_sample >= m_max_samples) {
         m_sample = 0;
-
-        nvprintf("100%%%%\n");
+        nvprintf("OK\n");
 
         if (m_save_png && m_render_optix) {
             // Save current frame to PNG
@@ -1040,15 +1104,12 @@ void Sample::display() {
             char pfmt[1024];
             sprintf(pfmt, "%s%s", m_outpath.c_str(), m_outfile.c_str());
             sprintf(png_name, pfmt, m_frame);
-            std::cout << "Save png to " << png_name << " ...";
+            std::cout << "  Saving png to " << png_name << "... ";
             optx.SaveOutput(png_name);
-            std::cout << " Done\n";
+            std::cout << "OK\n";
         }
 
         m_frame += m_fstep;
-
-        /* if (m_pnton)
-            load_points(m_pntpath, m_pntfile, m_frame);*/
 
         if (m_polyon) {
             m_pframe += m_pfstep;
@@ -1110,12 +1171,12 @@ void Sample::motion(int x, int y, int dx, int dy) {
             m_sample = 0;
         } break;
     }
-    if (m_sample == 0) {
+    /*if (m_sample == 0) {
         nvprintf("cam ang: %f %f %f\n", cam->getAng().x, cam->getAng().y, cam->getAng().z);
         nvprintf("cam dst: %f\n", cam->getOrbitDist());
         nvprintf("cam to:  %f %f %f\n", cam->getToPos().x, cam->getToPos().y, cam->getToPos().z);
         nvprintf("lgt ang: %f %f %f\n\n", lgt->getAng().x, lgt->getAng().y, lgt->getAng().z);
-    }
+    }*/
 }
 
 void Sample::keyboardchar(unsigned char key, int mods, int x, int y) {
@@ -1137,7 +1198,7 @@ void Sample::mouse(NVPWindow::MouseButton button, NVPWindow::ButtonAction state,
 }
 
 int sample_main(int argc, const char **argv) {
-    return sample_obj.run("GVDB Sparse Volumes - gPointCloud Sample", "pointcloud", argc, argv,
+    return sample_obj.run("p2g-scatter MPM", "p2g-scatter", argc, argv,
                           1280, 760, 4, 5, 30);
 }
 

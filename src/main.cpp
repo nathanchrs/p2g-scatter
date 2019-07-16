@@ -282,7 +282,7 @@ void Sample::RebuildOptixGraph(int shading) {
 Sample::Sample() {
     m_frame = -1;
     m_renderscale = 0.0;
-    m_infile = "new.scn";
+    m_infile = "small.scn";
     m_io_method = C_IO;
 
     m_iteration = 0;

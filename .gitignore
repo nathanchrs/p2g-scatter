@@ -64,3 +64,9 @@ _deps
 
 ### VS Code ###
 /.vscode
+
+### Python ###
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class

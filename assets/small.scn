@@ -1,7 +1,6 @@
 
-
 points
-  file: points3.dat
+  file: small.dat
   frame: 0
   mat: 0
 
@@ -14,7 +13,7 @@ model
 render
   width: 800
   height: 600
-  samples: 4
+  samples: 32
   backclr: <.1, .2, .4>
   envmap: sky.png
   outfile: img%04d.png
@@ -30,8 +29,8 @@ volume
 
 camera
   angs: <5, 20, 0>
-  target: <1000, 50, 1000>
-  dist: 300
+  target: <30, 10, 30>
+  dist: 200
   fov: 50
 
 light

@@ -9,7 +9,7 @@ points
 model
   file: ground.obj
   scale: 1.0
-  offset: <0,0,0>
+  offset: <0,10,0>
   mat: 1
 
 render
@@ -31,7 +31,7 @@ volume
 
 camera
   angs: <5, 20, 0>
-  target: <30, 10, 30>
+  target: <30, 20, 30>
   dist: 200
   fov: 50
 
@@ -156,27 +156,27 @@ def write_particles(title, particle_data):
 if __name__ == '__main__':
 
     write_particles('small', generate_particles_box_strided(
-        material_density=1000.0, origin=[20.0, 20.0, 20.0],
+        material_density=1000.0, origin=[20.0, 35.0, 20.0],
         particles_per_cell=8, size=[20.0, 20.0, 20.0]
     ))
 
     # Fixed size, variable PPC and particle count
-    for ppc in [4, 8, 16]:
+    for ppc in [4, 8, 12, 16, 20]:
         write_particles('fixedsize-ppc%d' % ppc, generate_particles_box_strided(
-            material_density=1000.0, origin=[20.0, 20.0, 20.0],
+            material_density=1000.0, origin=[20.0, 35.0, 20.0],
             particles_per_cell=ppc, size=[50.0, 50.0, 50.0]
         ))
 
     # Fixed PPC, variable particle count and size
-    for n in [400000, 800000, 1600000]:
+    for n in [400000, 800000, 1600000, 3200000, 6400000]:
         write_particles('fixedppc-n%dk' % int(n/1000), generate_particles_box_strided(
-            material_density=1000.0, origin=[20.0, 20.0, 20.0],
+            material_density=1000.0, origin=[20.0, 35.0, 20.0],
             n_particles=n, particles_per_cell=8
         ))
 
     # Fixed particle count, variable PPC and size
-    for ppc in [4, 8, 16]:
+    for ppc in [4, 8, 12, 16, 20]:
         write_particles('fixedn-ppc%d' % ppc, generate_particles_box_strided(
-            material_density=1000.0, origin=[20.0, 20.0, 20.0],
+            material_density=1000.0, origin=[20.0, 35.0, 20.0],
             particles_per_cell=ppc, n_particles=1000000
         ))

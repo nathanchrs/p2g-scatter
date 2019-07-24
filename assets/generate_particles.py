@@ -9,7 +9,7 @@ points
 model
   file: ground.obj
   scale: 1.0
-  offset: <0,10,0>
+  offset: <0,5,0>
   mat: 1
 
 render

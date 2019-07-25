@@ -11,10 +11,11 @@
 using namespace nvdb;
 
 // Sample utils
+#include "cudaProfiler.h"
 #include "main.h"   // window system
 #include "nv_gui.h" // gui system
-#include "cudaProfiler.h"
 #include <GL/glew.h>
+#include "cuda_runtime_api.h"
 #include <fstream>
 
 #include "string_helper.h"
@@ -824,6 +825,13 @@ void Sample::clear_gvdb() {
     gvdb.CleanAux();
 }
 
+float getEventDuration(cudaEvent_t start, cudaEvent_t end) {
+    cudaEventSynchronize(end);
+    float duration = 0.0; // In milliseconds
+    cudaEventElapsedTime(&duration, start, end);
+    return duration;
+}
+
 void Sample::render_update() {
     if (m_frame_limit && (m_frame >= m_frame_limit)) {
         printf("\nReached frame limit, stopping...\n");
@@ -852,6 +860,11 @@ void Sample::render_update() {
         float radius = 1.0;
         Vector3DF offset(0.0, 0.0, 0.0);
 
+        cudaEvent_t p2gStart, p2gEnd;
+        cudaEventCreate(&p2gStart);
+        cudaEventCreate(&p2gEnd);
+
+        cudaEventRecord(p2gStart);
         if (m_p2g_algorithm == SCATTER) {
             gvdb.ClearChannel(1);
             gvdb.ScatterLevelSet(m_numpnts, radius, offset, 1);
@@ -866,15 +879,43 @@ void Sample::render_update() {
             gvdb.ScatterReduceLevelSet(m_numpnts, radius, offset, 1);
             gvdb.CopyLinearChannelToTextureChannel(levelSetChannel, 1);
         }
+        cudaEventRecord(p2gEnd);
+        float p2gDuration = getEventDuration(p2gStart, p2gEnd);
 
         gvdb.UpdateApron(levelSetChannel, 3.0f);
 
         m_iteration++;
-        printf("OK\n");
+        printf("OK (%f ms)\n", p2gDuration);
+
+        cudaEventDestroy(p2gStart);
+        cudaEventDestroy(p2gEnd);
     } else {
         printf("  MPM... ");
+
+        cudaEvent_t frameStart, frameEnd;
+        cudaEvent_t topologyStart, topologyEnd, p2gStart, p2gEnd;
+        cudaEvent_t gridUpdateStart, gridUpdateEnd, g2pStart, g2pEnd;
+        cudaEventCreate(&frameStart);
+        cudaEventCreate(&frameEnd);
+        cudaEventCreate(&topologyStart);
+        cudaEventCreate(&topologyEnd);
+        cudaEventCreate(&p2gStart);
+        cudaEventCreate(&p2gEnd);
+        cudaEventCreate(&gridUpdateStart);
+        cudaEventCreate(&gridUpdateEnd);
+        cudaEventCreate(&g2pStart);
+        cudaEventCreate(&g2pEnd);
+        float topologyFrameDuration = 0.0;
+        float p2gFrameDuration = 0.0;
+        float gridUpdateFrameDuration = 0.0;
+        float g2pFrameDuration = 0.0;
+
+        cudaEventRecord(frameStart);
+
         float frameTimeElapsed = 0.0;
         float frameTimeTarget = 1.0 / simulationFPS;
+        int frameIteration = 0;
+
         while (frameTimeElapsed < frameTimeTarget && m_active) {
             if (m_iteration_limit && (m_iteration >= m_iteration_limit)) {
                 printf("\nReached iteration limit, stopping...\n");
@@ -884,15 +925,19 @@ void Sample::render_update() {
 
             // Rebuild GVDB Render topology
             PERF_PUSH("Dynamic Topology");
+            cudaEventRecord(topologyStart);
             gvdb.RebuildTopology(m_numpnts, 2.0, m_origin); // Allocate bricks so that all neighboring 3x3x3 voxels of a particle is covered
             gvdb.FinishTopology(false, true); // false. no commit pool	false. no compute bounds
             gvdb.UpdateAtlas();
+            cudaEventRecord(topologyEnd);
+            topologyFrameDuration += getEventDuration(topologyStart, topologyEnd);
             PERF_POP();
 
             // Gather points to level set
             PERF_PUSH("MPM");
 
             // P2G
+            cudaEventRecord(p2gStart);
             gvdb.ClearChannel(1);
             gvdb.ClearChannel(2);
             gvdb.ClearChannel(3);
@@ -907,12 +952,20 @@ void Sample::render_update() {
             } else {
                 gvdb.P2G_ScatterReduceAPIC(m_numpnts, m_particleInitialVolume, 7, 1, 4);
             }
+            cudaEventRecord(p2gEnd);
+            p2gFrameDuration += getEventDuration(p2gStart, p2gEnd);
 
             // Add external forces, handle collisions, update grid velocity
+            cudaEventRecord(gridUpdateStart);
             gvdb.MPM_GridUpdate(deltaTime, 7, 1, 4);
+            cudaEventRecord(gridUpdateEnd);
+            gridUpdateFrameDuration += getEventDuration(gridUpdateStart, gridUpdateEnd);
 
             // G2P and particle advection
+            cudaEventRecord(g2pStart);
             gvdb.G2P_GatherAPIC(m_numpnts, deltaTime, 1);
+            cudaEventRecord(g2pEnd);
+            g2pFrameDuration += getEventDuration(g2pStart, g2pEnd);
 
             // Calculate delta time based on maximum particle speeds
             gvdb.GetMinMaxVel(m_numpnts);
@@ -950,14 +1003,44 @@ void Sample::render_update() {
             elapsedTime += deltaTime;
             frameTimeElapsed += deltaTime;
             m_iteration++;
+            frameIteration++;
         }
-        printf("OK (dt: %f s, total simulated time: %f s, %d MPM iterations total)\n", deltaTime, elapsedTime, m_iteration);
+        cudaEventRecord(frameStart);
+        float frameDuration = getEventDuration(frameStart, frameEnd);
+
+        printf(
+            "OK (average dt: %f s, %d MPM iterations, total simulated time: %f s)\n",
+            frameIteration ? frameTimeElapsed / (float) frameIteration : 0,
+            frameIteration, elapsedTime
+        );
+        printf(
+            "    Topology rebuild : %f ms\n    P2G              : %f ms\n    Grid update      : %f ms\n    G2P              : %f ms\n    Frame total      : %f ms\n",
+            topologyFrameDuration, p2gFrameDuration, gridUpdateFrameDuration, g2pFrameDuration, frameDuration
+        );
 
         // Compute level set for render
+        cudaEvent_t levelSetStart, levelSetEnd;
+        cudaEventCreate(&levelSetStart);
+        cudaEventCreate(&levelSetEnd);
         printf("  Computing level set... ");
+        cudaEventRecord(levelSetStart);
         gvdb.ConvertLinearMassChannelToTextureLevelSetChannel(0, 7);
         gvdb.UpdateApron(0, 3.0f);
-        printf("OK\n");
+        cudaEventRecord(levelSetEnd);
+        printf("OK (%f ms)\n", getEventDuration(levelSetStart, levelSetEnd));
+
+        cudaEventDestroy(frameStart);
+        cudaEventDestroy(frameEnd);
+        cudaEventDestroy(topologyStart);
+        cudaEventDestroy(topologyEnd);
+        cudaEventDestroy(p2gStart);
+        cudaEventDestroy(p2gEnd);
+        cudaEventDestroy(gridUpdateStart);
+        cudaEventDestroy(gridUpdateEnd);
+        cudaEventDestroy(g2pStart);
+        cudaEventDestroy(g2pEnd);
+        cudaEventDestroy(levelSetStart);
+        cudaEventDestroy(levelSetEnd);
     }
 
     if (m_render_optix) {

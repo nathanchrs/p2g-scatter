@@ -743,34 +743,34 @@ void Sample::load_points(std::string pntpath, std::string pntfile, int frame) {
         *(((float*) m_particleMasses.cpu) + i) = particleInitialMass;
 
         // Velocity
-        float *velocity = ((float*) m_particleVelocities.cpu) + i * 3;
+        float *velocity = ((float *)m_particleVelocities.cpu) + i * 3;
         velocity[0] = 0.0;
         velocity[1] = 0.0;
         velocity[2] = 0.0;
 
         // Deformation gradient (initialize to identity matrix)
-        float *deformationGradients = (float*) m_particleDeformationGradients.cpu;
-        deformationGradients[i] = 1.0;
-        deformationGradients[1*m_numpnts + i] = 0.0;
-        deformationGradients[2*m_numpnts + i] = 0.0;
-        deformationGradients[3*m_numpnts + i] = 0.0;
-        deformationGradients[4*m_numpnts + i] = 1.0;
-        deformationGradients[5*m_numpnts + i] = 0.0;
-        deformationGradients[6*m_numpnts + i] = 0.0;
-        deformationGradients[7*m_numpnts + i] = 0.0;
-        deformationGradients[8*m_numpnts + i] = 1.0;
+        float *deformationGradient = ((float *)m_particleDeformationGradients.cpu) + i * 9;
+        deformationGradient[0] = 1.0;
+        deformationGradient[1] = 0.0;
+        deformationGradient[2] = 0.0;
+        deformationGradient[3] = 0.0;
+        deformationGradient[4] = 1.0;
+        deformationGradient[5] = 0.0;
+        deformationGradient[6] = 0.0;
+        deformationGradient[7] = 0.0;
+        deformationGradient[8] = 1.0;
 
         // APIC affine state (initialize to zero matrix)
-        float *affineStates = (float*) m_particleAffineStates.cpu;
-        affineStates[i] = 0.0;
-        affineStates[1*m_numpnts + i] = 0.0;
-        affineStates[2*m_numpnts + i] = 0.0;
-        affineStates[3*m_numpnts + i] = 0.0;
-        affineStates[4*m_numpnts + i] = 0.0;
-        affineStates[5*m_numpnts + i] = 0.0;
-        affineStates[6*m_numpnts + i] = 0.0;
-        affineStates[7*m_numpnts + i] = 0.0;
-        affineStates[8*m_numpnts + i] = 0.0;
+        float *affineState = ((float *)m_particleAffineStates.cpu) + i * 9;
+        affineState[0] = 0.0;
+        affineState[1] = 0.0;
+        affineState[2] = 0.0;
+        affineState[3] = 0.0;
+        affineState[4] = 0.0;
+        affineState[5] = 0.0;
+        affineState[6] = 0.0;
+        affineState[7] = 0.0;
+        affineState[8] = 0.0;
     }
 
     // Commit particle data to GPU

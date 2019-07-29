@@ -74,6 +74,7 @@ class Sample : public NVPWindow {
     DataPtr m_particleVelocities;
     DataPtr m_particleDeformationGradients;
     DataPtr m_particleAffineStates;
+    DataPtr m_particleMinVoxPxFTs;
     float m_particleInitialVolume;
 
     float simulationFPS;
@@ -726,6 +727,7 @@ void Sample::load_points(std::string pntpath, std::string pntfile, int frame) {
     gvdb.AllocData(m_particleVelocities, m_numpnts, sizeof(float) * 3, true);
     gvdb.AllocData(m_particleDeformationGradients, m_numpnts, sizeof(float) * 9, true);
     gvdb.AllocData(m_particleAffineStates, m_numpnts, sizeof(float) * 9, true);
+    gvdb.AllocData(m_particleMinVoxPxFTs, m_numpnts, sizeof(float) * 9, true);
 
     // Particle positions in grid units (cm)
     Vector3DF *particlesInput = (Vector3DF*) m_particlePositions.cpu;
@@ -780,7 +782,7 @@ void Sample::load_points(std::string pntpath, std::string pntfile, int frame) {
 
     // Set points for GVDB
     gvdb.SetPoints(m_particlePositions, m_particleMasses, m_particleVelocities,
-                   m_particleDeformationGradients, m_particleAffineStates);
+                   m_particleDeformationGradients, m_particleAffineStates, m_particleMinVoxPxFTs);
 
     printf("Read %d particles.\n", m_numpnts);
 }
@@ -821,7 +823,7 @@ void Sample::ReportMemory() {
 void Sample::clear_gvdb() {
     // Clear
     DataPtr temp;
-    gvdb.SetPoints(temp, temp, temp, temp, temp);
+    gvdb.SetPoints(temp, temp, temp, temp, temp, temp);
     gvdb.CleanAux();
 }
 
@@ -893,12 +895,14 @@ void Sample::render_update() {
         printf("  MPM... ");
 
         cudaEvent_t frameStart, frameEnd;
-        cudaEvent_t topologyStart, topologyEnd, p2gStart, p2gEnd;
+        cudaEvent_t topologyStart, topologyEnd, mpmCMStart, mpmCMEnd, p2gStart, p2gEnd;
         cudaEvent_t gridUpdateStart, gridUpdateEnd, g2pStart, g2pEnd;
         cudaEventCreate(&frameStart);
         cudaEventCreate(&frameEnd);
         cudaEventCreate(&topologyStart);
         cudaEventCreate(&topologyEnd);
+        cudaEventCreate(&mpmCMStart);
+        cudaEventCreate(&mpmCMEnd);
         cudaEventCreate(&p2gStart);
         cudaEventCreate(&p2gEnd);
         cudaEventCreate(&gridUpdateStart);
@@ -906,6 +910,7 @@ void Sample::render_update() {
         cudaEventCreate(&g2pStart);
         cudaEventCreate(&g2pEnd);
         float topologyFrameDuration = 0.0;
+        float mpmCMFrameDuration = 0.0;
         float p2gFrameDuration = 0.0;
         float gridUpdateFrameDuration = 0.0;
         float g2pFrameDuration = 0.0;
@@ -936,6 +941,12 @@ void Sample::render_update() {
             // Gather points to level set
             PERF_PUSH("MPM");
 
+            // Constitutive model on particle
+            cudaEventRecord(mpmCMStart);
+            gvdb.MPM_CalculateConstitutiveModel(m_numpnts, m_particleInitialVolume);
+            cudaEventRecord(mpmCMEnd);
+            mpmCMFrameDuration += getEventDuration(mpmCMStart, mpmCMEnd);
+
             // P2G
             cudaEventRecord(p2gStart);
             gvdb.ClearChannel(1);
@@ -946,11 +957,11 @@ void Sample::render_update() {
             gvdb.ClearChannel(6);
             gvdb.ClearChannel(7);
             if (m_p2g_algorithm == SCATTER) {
-                gvdb.P2G_ScatterAPIC(m_numpnts, m_particleInitialVolume, 7, 1, 4);
+                gvdb.P2G_ScatterAPIC(m_numpnts, 7, 1, 4);
             } else if (m_p2g_algorithm == GATHER) {
-                gvdb.P2G_GatherAPIC(m_numpnts, m_particleInitialVolume, 7, 1, 4);
+                gvdb.P2G_GatherAPIC(m_numpnts, 7, 1, 4);
             } else {
-                gvdb.P2G_ScatterReduceAPIC(m_numpnts, m_particleInitialVolume, 7, 1, 4);
+                gvdb.P2G_ScatterReduceAPIC(m_numpnts, 7, 1, 4);
             }
             cudaEventRecord(p2gEnd);
             p2gFrameDuration += getEventDuration(p2gStart, p2gEnd);
@@ -1014,8 +1025,8 @@ void Sample::render_update() {
             frameIteration, elapsedTime
         );
         printf(
-            "    Topology rebuild : %f ms\n    P2G              : %f ms\n    Grid update      : %f ms\n    G2P              : %f ms\n    Frame total      : %f ms\n",
-            topologyFrameDuration, p2gFrameDuration, gridUpdateFrameDuration, g2pFrameDuration, frameDuration
+            "    Topology rebuild : %f ms\n    Constitutive model: %f ms\n    P2G              : %f ms\n    Grid update      : %f ms\n    G2P              : %f ms\n    Frame total      : %f ms\n",
+            topologyFrameDuration, mpmCMFrameDuration, p2gFrameDuration, gridUpdateFrameDuration, g2pFrameDuration, frameDuration
         );
 
         // Compute level set for render
@@ -1033,6 +1044,8 @@ void Sample::render_update() {
         cudaEventDestroy(frameEnd);
         cudaEventDestroy(topologyStart);
         cudaEventDestroy(topologyEnd);
+        cudaEventDestroy(mpmCMStart);
+        cudaEventDestroy(mpmCMEnd);
         cudaEventDestroy(p2gStart);
         cudaEventDestroy(p2gEnd);
         cudaEventDestroy(gridUpdateStart);

@@ -164,11 +164,11 @@ if __name__ == '__main__':
     for ppc in [4, 8, 12, 16, 20]:
         write_particles('fixedsize-ppc%d' % ppc, generate_particles_box_strided(
             material_density=1000.0, origin=[20.0, 35.0, 20.0],
-            particles_per_cell=ppc, size=[50.0, 50.0, 50.0]
+            particles_per_cell=ppc, size=[64.0, 64.0, 64.0]
         ))
 
     # Fixed PPC, variable particle count and size
-    for n in [400000, 800000, 1600000, 3200000, 6400000]:
+    for n in [400000, 800000, 1600000, 3200000, 6400000, 12800000]:
         write_particles('fixedppc-n%dk' % int(n/1000), generate_particles_box_strided(
             material_density=1000.0, origin=[20.0, 35.0, 20.0],
             n_particles=n, particles_per_cell=8
@@ -178,5 +178,5 @@ if __name__ == '__main__':
     for ppc in [4, 8, 12, 16, 20]:
         write_particles('fixedn-ppc%d' % ppc, generate_particles_box_strided(
             material_density=1000.0, origin=[20.0, 35.0, 20.0],
-            particles_per_cell=ppc, n_particles=1000000
+            particles_per_cell=ppc, n_particles=3500000
         ))

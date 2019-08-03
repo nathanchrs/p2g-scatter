@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 
+import numpy
+import trimesh
+
 scene_template = """
 points
   file: {{ filename }}
@@ -124,6 +127,35 @@ def generate_particles_box_strided(
     }
 
 
+def generate_particles_from_obj(obj_file, material_density, origin, particles_per_cell, size):
+    particle_volume = 1.0 / particles_per_cell
+    stride = particle_volume ** (1/3)
+
+    mesh = trimesh.load_mesh(obj_file)
+    mesh.vertices -= mesh.bounds[0]  # Place object bottom corner at origin
+    mesh.vertices *= size / max(mesh.bounds[1])  # Scale object according to object size
+    obj_size = list(mesh.bounds[1])
+    mesh.vertices += origin
+
+    particle_positions = []
+    for pos_x in rangef(mesh.bounds[0][0], mesh.bounds[1][0], stride):
+        for pos_y in rangef(mesh.bounds[0][1], mesh.bounds[1][1], stride):
+            for pos_z in rangef(mesh.bounds[0][2], mesh.bounds[1][2], stride):
+                particle = [pos_x, pos_y, pos_z]
+                if mesh.contains([particle]):
+                    particle_positions.append(particle)
+                    print(particle)
+
+    return {
+        'particle_positions': particle_positions,  # in cm
+        'particle_volume': particle_volume * 1e-6,  # convert cm3 to m3
+        'particle_per_cell': particles_per_cell,
+        'particle_mass': material_density * particle_volume * 1e-6,  # in kg
+        'size': obj_size,  # in cm
+        'origin': origin,  # in cm
+    }
+
+
 def print_particle_data(title, particle_data):
     print()
     print(title)
@@ -158,6 +190,22 @@ if __name__ == '__main__':
     write_particles('small', generate_particles_box_strided(
         material_density=1000.0, origin=[20.0, 35.0, 20.0],
         particles_per_cell=8, size=[20.0, 20.0, 20.0]
+    ))
+
+    box_1 = generate_particles_box_strided(
+        material_density=1000.0, origin=[20.0, 15.0, 20.0],
+        particles_per_cell=8, size=[20.0, 20.0, 20.0]
+    )
+    box_2 = generate_particles_box_strided(
+        material_density=1000.0, origin=[32.0, 50.0, 28.0],
+        particles_per_cell=8, size=[20.0, 20.0, 20.0]
+    )
+    box_1['particle_positions'] += box_2['particle_positions']
+    write_particles('boxes', box_1)
+
+    write_particles('armadillo', generate_particles_from_obj(
+        obj_file='armadillo.obj', material_density=1000.0, origin=[20.0, 40.0, 20.0],
+        particles_per_cell=8, size=30.0
     ))
 
     # Fixed size, variable PPC and particle count

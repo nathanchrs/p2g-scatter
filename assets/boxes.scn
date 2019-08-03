@@ -29,8 +29,8 @@ volume
 
 camera
   angs: <5, 20, 0>
-  target: <30, 20, 30>
-  dist: 200
+  target: <65, 20, 65>
+  dist: 250
   fov: 50
 
 light

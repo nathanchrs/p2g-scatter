@@ -34,8 +34,8 @@ volume
 
 camera
   angs: <5, 20, 0>
-  target: <30, 20, 30>
-  dist: 200
+  target: <65, 20, 65>
+  dist: 250
   fov: 50
 
 light
@@ -193,19 +193,29 @@ if __name__ == '__main__':
     ))
 
     box_1 = generate_particles_box_strided(
-        material_density=1000.0, origin=[20.0, 15.0, 20.0],
+        material_density=1000.0, origin=[120.0, 20.0, 120.0],
         particles_per_cell=8, size=[20.0, 20.0, 20.0]
     )
     box_2 = generate_particles_box_strided(
-        material_density=1000.0, origin=[32.0, 50.0, 28.0],
+        material_density=1000.0, origin=[110.0, 50.0, 112.0],
+        particles_per_cell=8, size=[20.0, 20.0, 20.0]
+    )
+    box_3 = generate_particles_box_strided(
+        material_density=1000.0, origin=[127.0, 80.0, 132.0],
         particles_per_cell=8, size=[20.0, 20.0, 20.0]
     )
     box_1['particle_positions'] += box_2['particle_positions']
+    box_1['particle_positions'] += box_3['particle_positions']
     write_particles('boxes', box_1)
 
     write_particles('armadillo', generate_particles_from_obj(
         obj_file='armadillo.obj', material_density=1000.0, origin=[20.0, 40.0, 20.0],
         particles_per_cell=8, size=30.0
+    ))
+
+    write_particles('tyra', generate_particles_from_obj(
+        obj_file='tyra.obj', material_density=1000.0, origin=[120.0, 100.0, 120.0],
+        particles_per_cell=8, size=60.0
     ))
 
     # Fixed size, variable PPC and particle count
